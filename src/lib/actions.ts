@@ -113,17 +113,24 @@ export async function renameSavedWorkflow(id: string, name: string): Promise<voi
   }
 }
 
-export async function createNewWorkflow(): Promise<WorkflowDocument | null> {
+export async function createNewWorkflow(saveImmediately: boolean = true): Promise<WorkflowDocument | null> {
   await autosaveWorkflow();
   try {
     useWorkflowStore.getState().resetWorkflow();
-    const saved = await api.saveWorkflow(useWorkflowStore.getState().toDocument());
-    useWorkflowStore.getState().markSaved(saved);
-    useRuntimeStore.getState().clearAll();
-    useUIStore.getState().inspect(null, { open: false });
-    rememberLastOpened(saved.id);
-    useUIStore.getState().notify("New workflow created");
-    return saved;
+    
+    if (saveImmediately) {
+      const saved = await api.saveWorkflow(useWorkflowStore.getState().toDocument());
+      useWorkflowStore.getState().markSaved(saved);
+      useRuntimeStore.getState().clearAll();
+      useUIStore.getState().inspect(null, { open: false });
+      rememberLastOpened(saved.id);
+      useUIStore.getState().notify("New workflow created");
+      return saved;
+    } else {
+      useRuntimeStore.getState().clearAll();
+      useUIStore.getState().inspect(null, { open: false });
+      return null;
+    }
   } catch (error) {
     useUIStore.getState().notify(message(error), "error");
     return null;
@@ -580,8 +587,8 @@ export async function deleteWorkflowAction(id: string): Promise<void> {
     await api.deleteWorkflow(id);
     const state = useWorkflowStore.getState();
     if (state.id === id) {
-      // If we deleted the active workflow, open a new blank one
-      await createNewWorkflow();
+      // If we deleted the active workflow, open a new blank one without saving it to disk yet
+      await createNewWorkflow(false);
     }
   } catch (error) {
     useUIStore.getState().notify(message(error), "error");
