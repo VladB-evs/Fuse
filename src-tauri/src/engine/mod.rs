@@ -258,6 +258,7 @@ pub async fn execute_with_prompts(
             node_id: node_id.clone(),
             status,
             exit_code,
+            output_value: None,
             duration_ms,
             at: now_ms(),
         });
@@ -551,6 +552,7 @@ async fn ask_step(
             node_id: node_id.to_string(),
             status,
             exit_code: None,
+            output_value: None,
             duration_ms: started.elapsed().as_millis() as u64,
             at: now_ms(),
         });

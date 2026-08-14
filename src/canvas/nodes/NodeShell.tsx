@@ -298,6 +298,7 @@ export function TextField({
   width = 52,
   onChange,
   onCommit,
+  rightNode,
 }: {
   label?: string;
   value: string;
@@ -307,6 +308,7 @@ export function TextField({
   width?: number;
   onChange: (value: string) => void;
   onCommit: () => void;
+  rightNode?: ReactNode;
 }) {
   return (
     <div className="flex items-center gap-1.5">
@@ -331,6 +333,7 @@ export function TextField({
           invalid ? "border-warn/50" : "border-line",
         )}
       />
+      {rightNode}
     </div>
   );
 }

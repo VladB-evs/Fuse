@@ -72,6 +72,7 @@ pub enum EngineEvent {
         node_id: String,
         status: NodeStatus,
         exit_code: Option<i32>,
+        output_value: Option<String>,
         duration_ms: u64,
         at: u64,
     },

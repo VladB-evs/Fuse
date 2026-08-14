@@ -387,6 +387,7 @@ export type EngineEvent =
       nodeId: string;
       status: NodeStatus;
       exitCode: number | null;
+      outputValue?: string | null;
       durationMs: number;
       at: number;
     }

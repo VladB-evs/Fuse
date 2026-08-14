@@ -1,0 +1,8 @@
+@@ -79,7 +85,7 @@
+             // Single click renames: the name is the one thing on a frame you
+             // reach for, and hiding it behind a double-click hid it entirely.
+             onClick={(e) => {
+               e.stopPropagation();
+               setEditingLabel(true);
+             }}
+             title="Click to rename"

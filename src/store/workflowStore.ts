@@ -69,6 +69,7 @@ export type WorkflowState = {
   onNodesChange: (changes: NodeChange<FuseNode>[]) => void;
   onEdgesChange: (changes: EdgeChange<FuseEdge>[]) => void;
   onConnect: (connection: Connection) => void;
+  recomputeFrames: () => void;
   /** Cut one wire. */
   disconnect: (edgeId: string) => void;
   /** Cut every wire in or out of these blocks. */
@@ -77,7 +78,7 @@ export type WorkflowState = {
   reconnect: (edgeId: string, connection: Connection) => void;
 
   /** Returns the new node id so the caller can focus it. */
-  addBlockNode: (kind: BlockKind, options?: { position?: { x: number; y: number } }) => string;
+  addBlockNode: (kind: BlockKind, options?: { position?: { x: number; y: number }; frameId?: string | null }) => string;
   addFrameNode: (options?: { position?: { x: number; y: number } }) => string;
   updateNodeData: (id: string, patch: Partial<BlockData>) => void;
   updateFrameData: (id: string, patch: Partial<FrameData>) => void;
@@ -638,6 +639,12 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
       }));
     },
 
+    recomputeFrames: () => {
+      set((state) => ({
+        nodes: fitFrames(state.nodes, new Map(), true),
+      }));
+    },
+
     onEdgesChange: (changes) => {
       const touchesDocument = changes.some((c) => c.type === "remove" || c.type === "add");
       if (touchesDocument) pushHistory();
@@ -745,10 +752,12 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
 
       // A block created inside a frame belongs to it straight away — that is
       // the whole point of double-clicking inside one.
-      const frame = frameAt(state.nodes, {
-        x: at.x + NOMINAL_BLOCK.width / 2,
-        y: at.y + NOMINAL_BLOCK.height / 2,
-      });
+      const frame = options?.frameId !== undefined 
+        ? { id: options.frameId }
+        : frameAt(state.nodes, {
+            x: at.x + NOMINAL_BLOCK.width / 2,
+            y: at.y + NOMINAL_BLOCK.height / 2,
+          });
 
       const node = {
         id,

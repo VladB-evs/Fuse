@@ -55,12 +55,16 @@ pub enum NodePayload {
     /// A visual sticky note, skipped during execution.
     Note(NoteData),
     /// Reads a file into a variable.
+    #[serde(rename = "read_file")]
     ReadFile(ReadFileData),
     /// Writes text (or variables) into a file.
+    #[serde(rename = "write_file")]
     WriteFile(WriteFileData),
     /// Sets a variable inside the workflow state.
+    #[serde(rename = "set_variable")]
     SetVariable(SetVariableData),
     /// Parses a semantic version and increments it.
+    #[serde(rename = "bump_version")]
     BumpVersion(BumpVersionData),
 }
 

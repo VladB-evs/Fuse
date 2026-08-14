@@ -177,7 +177,10 @@ export function addNodeOfKind(
 
   // A wire dropped on empty canvas already said where the block goes, so it
   // must not also chain itself onto whatever happened to be selected.
-  const id = workflow.addBlockNode(kind, position ? { position } : undefined);
+  const sourceNode = connectFrom ? workflow.nodes.find(n => n.id === connectFrom.nodeId) : undefined;
+  const sourceFrameId = sourceNode && "frameId" in sourceNode.data ? sourceNode.data.frameId : undefined;
+  
+  const id = workflow.addBlockNode(kind, position ? { position, frameId: sourceFrameId } : (sourceFrameId !== undefined ? { frameId: sourceFrameId } : undefined));
 
   if (connectFrom) {
     useWorkflowStore.getState().onConnect(

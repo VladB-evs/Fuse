@@ -84,6 +84,20 @@ impl<'a> Reporter<'a> {
             node_id: self.node_id.to_string(),
             status,
             exit_code,
+            output_value: None,
+            duration_ms: self.started.elapsed().as_millis() as u64,
+            at: now_ms(),
+        });
+        status
+    }
+
+    pub fn finished_with_value(&self, status: NodeStatus, exit_code: Option<i32>, value: String) -> NodeStatus {
+        self.sink.emit(EngineEvent::NodeFinished {
+            run_id: self.run_id.to_string(),
+            node_id: self.node_id.to_string(),
+            status,
+            exit_code,
+            output_value: Some(value),
             duration_ms: self.started.elapsed().as_millis() as u64,
             at: now_ms(),
         });
@@ -733,7 +747,7 @@ pub(crate) async fn run_bump_version(
     reporter.out(format!("Bumped {} to {}", input, output));
     
     StepOutcome {
-        status: reporter.finished(NodeStatus::Success, Some(0)),
+        status: reporter.finished_with_value(NodeStatus::Success, Some(0), output.clone()),
         value: Some((data.variable_out.trim().to_string(), output)),
         branch: None,
     }

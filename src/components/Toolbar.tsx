@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Play, Plus, Square, Settings } from "lucide-react";
+import { BookOpen, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Play, Plus, Square, Settings, FolderOpen, FolderInput } from "lucide-react";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useRuntimeStore } from "@/store/runtimeStore";
 import { useUIStore } from "@/store/uiStore";
 import { Button } from "@/components/ui/Button";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { Kbd } from "@/components/ui/Kbd";
-import { openNodePicker, runCurrentWorkflow, stopCurrentRun } from "@/lib/actions";
+import { openNodePicker, runCurrentWorkflow, stopCurrentRun, importWorkflow, importBlocks } from "@/lib/actions";
 import { looseBlocks } from "@/lib/frames";
 import { cn, formatDuration } from "@/lib/utils";
 import { RUN_STATUS_LABEL, RUN_STATUS_TONE, TONE_TEXT } from "@/lib/status";
@@ -176,6 +176,24 @@ export function Toolbar() {
         className="flex items-center justify-center rounded-[6px] p-1.5 text-fg-subtle transition hover:bg-hover hover:text-fg"
       >
         <BookOpen size={15} />
+      </button>
+
+      <button
+        type="button"
+        onClick={() => void importWorkflow()}
+        title="Open Workflow"
+        className="flex items-center justify-center rounded-[6px] p-1.5 text-fg-subtle transition hover:bg-hover hover:text-fg"
+      >
+        <FolderOpen size={15} />
+      </button>
+
+      <button
+        type="button"
+        onClick={() => void importBlocks()}
+        title="Import Blocks into Current Flow"
+        className="flex items-center justify-center rounded-[6px] p-1.5 text-fg-subtle transition hover:bg-hover hover:text-fg"
+      >
+        <FolderInput size={15} />
       </button>
 
       <button

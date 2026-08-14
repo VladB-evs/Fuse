@@ -1,0 +1,52 @@
+--- src/canvas/nodes/FrameNode.tsx
++++ src/canvas/nodes/FrameNode.tsx
+@@ -1,6 +1,6 @@
+ import { memo, useEffect, useRef, useState } from "react";
+ import { Handle, type NodeProps } from "@xyflow/react";
+-import { Pencil, Play, Download, LayoutDashboard, RotateCcw } from "lucide-react";
++import { Pencil, Play, Download, LayoutDashboard, RotateCcw, GripVertical } from "lucide-react";
+ import { useWorkflowStore } from "@/store/workflowStore";
+ import { useRuntimeStore } from "@/store/runtimeStore";
+ import { useUIStore } from "@/store/uiStore";
+@@ -52,14 +52,20 @@
+       {/* Header tab. Sits above the frame so it never covers a block. */}
+       <div
+         className={cn(
+-          "absolute -top-[30px] left-0 flex h-[26px] min-w-[140px] max-w-full items-center gap-1.5",
+-          "rounded-t-[8px] border border-b-0 border-line bg-elevated pr-1.5 pl-2.5",
+-          "cursor-grab active:cursor-grabbing pointer-events-auto",
++          "absolute -top-[30px] left-0 flex h-[26px] min-w-[140px] max-w-full items-center gap-1",
++          "rounded-t-[8px] border border-b-0 border-line bg-elevated pr-1.5 pl-1",
++          "pointer-events-auto",
+           selected && "border-accent/60",
+         )}
+       >
++        {/* Dedicated drag handle */}
++        <div className="flex h-full items-center justify-center cursor-grab active:cursor-grabbing text-fg-subtle/50 hover:text-fg-subtle px-0.5 transition-colors" title="Drag frame">
++          <GripVertical size={13} strokeWidth={2.5} />
++        </div>
++
++        <div className="nodrag flex flex-1 items-center gap-1.5 cursor-pointer h-full px-1" title="Select frame">
+         {editingLabel ? (
+           <input
+             ref={labelRef}
+-            className="nodrag min-w-[6ch] bg-transparent text-[11.5px] font-medium text-fg outline-none"
++            className="min-w-[6ch] bg-transparent text-[11.5px] font-medium text-fg outline-none"
+             defaultValue={data.label}
+             autoFocus
+@@ -79,7 +85,7 @@
+             // Single click renames: the name is the one thing on a frame you
+             // reach for, and hiding it behind a double-click hid it entirely.
+             onClick={(e) => {
+               e.stopPropagation();
+               setEditingLabel(true);
+             }}
+             title="Click to rename"
+-            className="flex shrink-0 items-center gap-1 rounded-[5px] px-1 py-0.5 text-[11.5px] font-medium text-fg transition hover:bg-hover"
++            className="flex shrink-0 items-center gap-1 rounded-[5px] px-1 py-0.5 text-[11.5px] font-medium text-fg transition hover:bg-hover cursor-text"
+           >
+             {data.label || "Frame"}
+@@ -103,2 +109,3 @@
+         </span>
++        </div>
+ 
