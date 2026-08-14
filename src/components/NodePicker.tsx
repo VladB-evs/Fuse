@@ -43,7 +43,7 @@ export function NodePicker() {
 
     const { innerWidth, innerHeight } = window;
     const x = Math.min(request.at.x, innerWidth - PANEL.width - 12);
-    const y = Math.min(request.at.y, innerHeight - Math.min(PANEL.maxHeight, 320) - 12);
+    const y = Math.min(request.at.y, innerHeight - PANEL.maxHeight - 12);
     el.style.left = `${Math.max(12, x)}px`;
     el.style.top = `${Math.max(12, y)}px`;
   }, [request]);
@@ -58,7 +58,7 @@ export function NodePicker() {
 
   const choose = (entry: CatalogEntry) => {
     close();
-    addNodeOfKind(entry.kind, request.position, request.connectFrom);
+    addNodeOfKind(entry.kind, request.position, request.connectFrom, entry.prefill);
   };
 
   return (
@@ -127,7 +127,7 @@ export function NodePicker() {
             const Icon = entry.icon;
 
             return (
-              <div key={entry.kind}>
+              <div key={entry.label}>
                 {first && !query && (
                   <div className="px-2 pt-2 pb-1 text-[9.5px] font-medium tracking-wide text-fg-subtle uppercase">
                     {entry.group}

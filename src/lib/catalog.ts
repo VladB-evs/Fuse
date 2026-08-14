@@ -12,6 +12,9 @@ import {
   Frame,
   Globe,
   GitBranch,
+  GitCommit,
+  GitMerge,
+  GitPullRequest,
   ShieldQuestionMark,
   Split,
   TerminalSquare,
@@ -24,7 +27,7 @@ import {
   ArrowUpFromLine,
   type LucideIcon,
 } from "lucide-react";
-import type { NodeKind } from "@/types/workflow";
+import type { NodeKind, BlockData } from "@/types/workflow";
 
 export type Accent = "fg" | "warn" | "accent" | "success" | "danger" | "cyan";
 
@@ -37,7 +40,7 @@ export type CatalogEntry = {
   detail: string;
   icon: LucideIcon;
   accent: Accent;
-  group: "Run" | "Flow" | "Values" | "Layout";
+  group: "Run" | "Flow" | "Values" | "Layout" | "Git";
   /** Extra words the picker's search should match on. */
   keywords: string[];
   /** Shown on the right of a picker row, when there is one. */
@@ -47,6 +50,8 @@ export type CatalogEntry = {
     when: string;
     example: string;
   };
+  /** Pre-filled data for the node when created. */
+  prefill?: Partial<BlockData>;
 };
 
 export const CATALOG: CatalogEntry[] = [
@@ -278,6 +283,126 @@ export const CATALOG: CatalogEntry[] = [
       example: "## Remember to run this before deploying!",
     },
   },
+{
+    kind: "command", label: "Git Init", summary: "Initialize repository", detail: "git init",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "init"],
+    documentation: { what: "Initializes a Git repository.", when: "Starting a new project.", example: "git init" },
+    prefill: { label: "Git Init", command: "git init" },
+  },
+  {
+    kind: "command", label: "Git Clone", summary: "Clone repository", detail: "git clone",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "clone"],
+    documentation: { what: "Clones a repository.", when: "Downloading a project.", example: "git clone {{url}}" },
+    prefill: { label: "Git Clone", command: "git clone \"{{repository_url}}\"" },
+  },
+  {
+    kind: "command", label: "Git Status", summary: "Show status", detail: "git status",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "status"],
+    documentation: { what: "Shows working tree status.", when: "Checking for changes.", example: "git status" },
+    prefill: { label: "Git Status", command: "git status" },
+  },
+  {
+    kind: "command", label: "Git Add All", summary: "Stage all changes", detail: "git add .",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "add"],
+    documentation: { what: "Stages all changes.", when: "Preparing to commit.", example: "git add ." },
+    prefill: { label: "Git Add All", command: "git add ." },
+  },
+  {
+    kind: "command", label: "Git Commit", summary: "Commit changes", detail: "git commit",
+    icon: GitCommit, accent: "cyan", group: "Git", keywords: ["git", "commit"],
+    documentation: { what: "Commits staged changes.", when: "Saving work.", example: "git commit -m 'msg'" },
+    prefill: { label: "Git Commit", command: "git commit -m \"{{commit_message}}\"" },
+  },
+  {
+    kind: "command", label: "Git Push", summary: "Push commits", detail: "git push",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "push"],
+    documentation: { what: "Pushes commits to remote.", when: "Sharing work.", example: "git push" },
+    prefill: { label: "Git Push", command: "git push origin \"{{branch_name}}\"" },
+  },
+  {
+    kind: "command", label: "Git Pull", summary: "Pull commits", detail: "git pull",
+    icon: GitPullRequest, accent: "cyan", group: "Git", keywords: ["git", "pull"],
+    documentation: { what: "Pulls commits from remote.", when: "Updating branch.", example: "git pull" },
+    prefill: { label: "Git Pull", command: "git pull origin \"{{branch_name}}\"" },
+  },
+  {
+    kind: "command", label: "Git Branch", summary: "List branches", detail: "git branch",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "branch"],
+    documentation: { what: "Lists branches.", when: "Checking branches.", example: "git branch" },
+    prefill: { label: "Git Branch", command: "git branch" },
+  },
+  {
+    kind: "command", label: "Git Checkout", summary: "Switch branch", detail: "git checkout",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "checkout"],
+    documentation: { what: "Switches branch.", when: "Changing branches.", example: "git checkout main" },
+    prefill: { label: "Git Checkout", command: "git checkout \"{{branch_name}}\"" },
+  },
+  {
+    kind: "command", label: "Git Merge", summary: "Merge branch", detail: "git merge",
+    icon: GitMerge, accent: "cyan", group: "Git", keywords: ["git", "merge"],
+    documentation: { what: "Merges a branch.", when: "Integrating changes.", example: "git merge feat" },
+    prefill: { label: "Git Merge", command: "git merge \"{{branch_name}}\"" },
+  },
+  {
+    kind: "command", label: "Git Rebase", summary: "Rebase branch", detail: "git rebase",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "rebase"],
+    documentation: { what: "Rebases current branch.", when: "Updating from main.", example: "git rebase main" },
+    prefill: { label: "Git Rebase", command: "git rebase \"{{branch_name}}\"" },
+  },
+  {
+    kind: "command", label: "Git Cherry-Pick", summary: "Cherry-pick commit", detail: "git cherry-pick",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "cherry", "pick"],
+    documentation: { what: "Cherry-picks a commit.", when: "Applying specific commit.", example: "git cherry-pick {{hash}}" },
+    prefill: { label: "Git Cherry-Pick", command: "git cherry-pick \"{{commit_hash}}\"" },
+  },
+  {
+    kind: "command", label: "Git Tag", summary: "Create tag", detail: "git tag",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "tag"],
+    documentation: { what: "Creates a new tag.", when: "Marking a release.", example: "git tag v1.0.0" },
+    prefill: { label: "Git Tag", command: "git tag \"{{tag_name}}\"" },
+  },
+  {
+    kind: "command", label: "Git Reset", summary: "Reset current HEAD", detail: "git reset",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "reset"],
+    documentation: { what: "Resets HEAD.", when: "Undoing commits.", example: "git reset --hard HEAD~1" },
+    prefill: { label: "Git Reset", command: "git reset --hard \"{{commit_hash}}\"" },
+  },
+  {
+    kind: "command", label: "Git Revert", summary: "Revert commit", detail: "git revert",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "revert"],
+    documentation: { what: "Reverts a commit.", when: "Undoing a specific commit.", example: "git revert {{hash}}" },
+    prefill: { label: "Git Revert", command: "git revert \"{{commit_hash}}\"" },
+  },
+  {
+    kind: "command", label: "Git Remote Add", summary: "Add remote", detail: "git remote add",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "remote"],
+    documentation: { what: "Adds a new remote.", when: "Connecting to a remote repo.", example: "git remote add origin {{url}}" },
+    prefill: { label: "Git Remote Add", command: "git remote add origin \"{{remote_url}}\"" },
+  },
+  {
+    kind: "command", label: "Git Log", summary: "Show commit log", detail: "git log",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "log"],
+    documentation: { what: "Shows commit history.", when: "Reviewing past changes.", example: "git log" },
+    prefill: { label: "Git Log", command: "git log --oneline -n 10" },
+  },
+  {
+    kind: "command", label: "Git Diff", summary: "Show changes", detail: "git diff",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "diff"],
+    documentation: { what: "Shows file differences.", when: "Reviewing uncommitted changes.", example: "git diff" },
+    prefill: { label: "Git Diff", command: "git diff" },
+  },
+  {
+    kind: "command", label: "Git Stash", summary: "Stash changes", detail: "git stash",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "stash"],
+    documentation: { what: "Stashes uncommitted changes.", when: "Temporarily clearing working directory.", example: "git stash" },
+    prefill: { label: "Git Stash", command: "git stash" },
+  },
+  {
+    kind: "command", label: "Git Stash Pop", summary: "Pop stashed changes", detail: "git stash pop",
+    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "stash", "pop"],
+    documentation: { what: "Pops stashed changes.", when: "Restoring stashed changes.", example: "git stash pop" },
+    prefill: { label: "Git Stash Pop", command: "git stash pop" },
+  }
 ];
 
 const BY_KIND = new Map(CATALOG.map((entry) => [entry.kind, entry]));

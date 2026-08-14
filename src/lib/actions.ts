@@ -14,6 +14,7 @@ import {
   isFrameNode,
   type FrameNodeType,
   type NodeKind,
+  type BlockData,
   type PersistedNode,
   type PromptReply,
   type PromptRequest,
@@ -166,6 +167,7 @@ export function addNodeOfKind(
   kind: NodeKind,
   position?: { x: number; y: number },
   connectFrom?: { nodeId: string; handleId: string | null; backwards: boolean },
+  prefill?: Partial<BlockData>,
 ): string {
   const workflow = useWorkflowStore.getState();
 
@@ -180,7 +182,7 @@ export function addNodeOfKind(
   const sourceNode = connectFrom ? workflow.nodes.find(n => n.id === connectFrom.nodeId) : undefined;
   const sourceFrameId = sourceNode && "frameId" in sourceNode.data ? sourceNode.data.frameId : undefined;
   
-  const id = workflow.addBlockNode(kind, position ? { position, frameId: sourceFrameId } : (sourceFrameId !== undefined ? { frameId: sourceFrameId } : undefined));
+  const id = workflow.addBlockNode(kind, position ? { position, frameId: sourceFrameId, prefill } : (sourceFrameId !== undefined ? { frameId: sourceFrameId, prefill } : { prefill }));
 
   if (connectFrom) {
     useWorkflowStore.getState().onConnect(
@@ -345,7 +347,6 @@ async function withRunInputs(
   const targets = doc.nodes.filter(
     (n) => n.type !== "frame" && (!targetIds || targetIds.includes(n.id)),
   );
-
   // Anything an ask or capture step will produce during the run is not asked
   // for now — deciding it up front would defeat the point of those steps.
   const filledLater = new Set(

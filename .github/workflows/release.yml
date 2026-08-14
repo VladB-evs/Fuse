@@ -52,3 +52,4 @@ jobs:
           releaseBody: "See the assets below to download and install this version."
           releaseDraft: false
           prerelease: false
+          includeUpdaterJson: true

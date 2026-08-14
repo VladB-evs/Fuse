@@ -15,6 +15,7 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import { newId } from "@/lib/id";
+import { placeholdersIn } from "@/lib/placeholders";
 import { SOURCE_PORT, TARGET_PORT } from "@/canvas/ports";
 import {
   frameAt,
@@ -78,7 +79,7 @@ export type WorkflowState = {
   reconnect: (edgeId: string, connection: Connection) => void;
 
   /** Returns the new node id so the caller can focus it. */
-  addBlockNode: (kind: BlockKind, options?: { position?: { x: number; y: number }; frameId?: string | null }) => string;
+  addBlockNode: (kind: BlockKind, options?: { position?: { x: number; y: number }; frameId?: string | null; prefill?: Partial<BlockData> }) => string;
   addFrameNode: (options?: { position?: { x: number; y: number } }) => string;
   updateNodeData: (id: string, patch: Partial<BlockData>) => void;
   updateFrameData: (id: string, patch: Partial<FrameData>) => void;
@@ -669,10 +670,81 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
       if (duplicate) return;
 
       pushHistory();
-      set((state) => ({
-        edges: addEdge(withPorts({ ...connection, id: newId(), type: "flow" }), state.edges),
-        dirty: true,
-      }));
+      set((state) => {
+        // Include the new edge so the BFS can traverse it.
+        const newEdge = withPorts({ ...connection, id: newId(), type: "flow" });
+        const allEdges = addEdge(newEdge, state.edges);
+
+        let newNodes = state.nodes;
+        const targetNode = state.nodes.find((n) => n.id === connection.target);
+
+        // If the target is a command node with unresolved placeholders, walk
+        // upstream to find the closest variable-producing node and auto-bind.
+        if (targetNode && targetNode.type === "command" && targetNode.data.command) {
+          const placeholders = placeholdersIn(targetNode.data.command as string);
+
+          // Collect all variables already produced by other nodes.
+          const knownVars = new Set<string>();
+          for (const n of state.nodes) {
+            if (n.type === "input" || n.type === "capture" || n.type === "read_file" || n.type === "set_variable" || n.type === "http") {
+              const v = (n.data as any).variable?.trim();
+              if (v) knownVars.add(v);
+            } else if (n.type === "bump_version") {
+              const v = (n.data as any).variableOut?.trim();
+              if (v) knownVars.add(v);
+            }
+          }
+
+          // Find unbound placeholders — ones that don't match any known variable.
+          const unbound = placeholders.filter((p) => !knownVars.has(p));
+
+          if (unbound.length >= 1) {
+            // BFS upstream from the target to find the closest variable producer.
+            const visited = new Set<string>();
+            const queue = [connection.target!];
+            let upstreamVar: string | null = null;
+
+            while (queue.length > 0 && !upstreamVar) {
+              const current = queue.shift()!;
+              if (visited.has(current)) continue;
+              visited.add(current);
+
+              const incoming = allEdges.filter((e) => e.target === current);
+              for (const edge of incoming) {
+                const src = state.nodes.find((n) => n.id === edge.source);
+                if (!src) continue;
+                if (src.type === "input" || src.type === "capture" || src.type === "read_file" || src.type === "set_variable" || src.type === "http") {
+                  upstreamVar = (src.data as any).variable?.trim() || null;
+                } else if (src.type === "bump_version") {
+                  upstreamVar = (src.data as any).variableOut?.trim() || null;
+                }
+                if (upstreamVar) break;
+                queue.push(src.id);
+              }
+            }
+
+            if (upstreamVar) {
+              // Replace the first unbound placeholder with the upstream variable.
+              const p = unbound[0]!;
+              const newCommand = (targetNode.data.command as string).replace(
+                new RegExp(`\\{\\{\\s*${p}\\s*\\}\\}`, "g"),
+                `{{${upstreamVar}}}`
+              );
+              newNodes = state.nodes.map((n) =>
+                n.id === targetNode.id
+                  ? ({ ...n, data: { ...n.data, command: newCommand } } as FuseNode)
+                  : n
+              );
+            }
+          }
+        }
+
+        return {
+          edges: allEdges,
+          nodes: newNodes,
+          dirty: true,
+        };
+      });
     },
 
     disconnect: (edgeId) => {
@@ -763,7 +835,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
         id,
         type: kind,
         position: at,
-        data: { ...emptyBlock(kind), frameId: frame?.id ?? null },
+        data: { ...emptyBlock(kind), frameId: frame?.id ?? null, ...(options?.prefill ?? {}) },
         selected: true,
         zIndex: Z_BLOCK,
       } as BlockNodeType;

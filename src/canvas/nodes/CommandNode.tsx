@@ -27,6 +27,7 @@ import {
 import { cn, formatDuration, prettyPath } from "@/lib/utils";
 import { STATUS_LABEL } from "@/lib/status";
 import { placeholdersIn } from "@/lib/placeholders";
+import { useAvailableVariables } from "@/lib/useAvailableVariables";
 import { isFrameNode, type CommandNodeType, type FrameNodeType } from "@/types/workflow";
 
 const MAX_COMMAND_HEIGHT = 148;
@@ -51,6 +52,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
 
   const [editingLabel, setEditingLabel] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState<string | null>(null); // placeholder name or "__insert__"
   const commandRef = useRef<HTMLTextAreaElement>(null);
 
   const autoGrow = useCallback(() => {
@@ -71,6 +73,33 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
 
   // Values this block will ask for at run time.
   const inputs = useMemo(() => placeholdersIn(data.command), [data.command]);
+  const availableVars = useAvailableVariables();
+
+  /** Replace a specific placeholder name everywhere in the command. */
+  const replaceVariable = useCallback(
+    (oldName: string, newName: string) => {
+      const pattern = new RegExp(`\\{\\{\\s*${oldName}\\s*\\}\\}`, "g");
+      beginEdit();
+      updateNodeData(id, {
+        command: data.command.replace(pattern, `{{${newName}}}`),
+      });
+      setPickerOpen(null);
+    },
+    [id, data.command, beginEdit, updateNodeData],
+  );
+
+  /** Insert a variable reference at the end of the command. */
+  const insertVariable = useCallback(
+    (varName: string) => {
+      beginEdit();
+      const separator = data.command && !data.command.endsWith(" ") ? " " : "";
+      updateNodeData(id, {
+        command: `${data.command}${separator}"{{${varName}}}"`,
+      });
+      setPickerOpen(null);
+    },
+    [id, data.command, beginEdit, updateNodeData],
+  );
 
   const isRunning = status === "running";
   const tail = isRunning && lines ? lines.slice(-TAIL_LINES) : [];
@@ -237,6 +266,103 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
             }}
           />
         </div>
+
+        {/* Variable picker strip */}
+        {(inputs.length > 0 || availableVars.length > 0) && (
+          <div className="nodrag flex flex-wrap items-center gap-1 border-t border-line/50 px-2.5 py-1.5">
+            {inputs.map((name) => {
+              const bound = availableVars.some((v) => v.name === name);
+              return (
+                <div key={name} className="relative">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setPickerOpen(pickerOpen === name ? null : name);
+                    }}
+                    className={cn(
+                      "flex items-center gap-1 rounded-[4px] px-1.5 py-[2px] text-[10px] font-mono transition",
+                      bound
+                        ? "bg-success/12 text-success hover:bg-success/20"
+                        : "bg-warn/12 text-warn hover:bg-warn/20",
+                    )}
+                    title={bound ? `Linked to {{${name}}}` : `Click to bind {{${name}}} to a variable`}
+                  >
+                    <Variable size={8} strokeWidth={2.5} />
+                    {name}
+                    <ChevronDown size={8} />
+                  </button>
+
+                  {pickerOpen === name && availableVars.length > 0 && (
+                    <div className="absolute left-0 top-full z-50 mt-1 min-w-[180px] rounded-[6px] border border-line bg-base shadow-lg">
+                      {availableVars.map((v) => (
+                        <button
+                          key={v.name}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            replaceVariable(name, v.name);
+                          }}
+                          className={cn(
+                            "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] transition hover:bg-hover",
+                            v.name === name && "bg-accent/10 text-accent",
+                          )}
+                        >
+                          <Variable size={10} className="shrink-0 text-fg-subtle" />
+                          <span className="font-mono font-medium text-fg">{v.name}</span>
+                          <span className="ml-auto truncate text-[9.5px] text-fg-subtle">{v.sourceLabel}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Insert new variable button */}
+            {availableVars.length > 0 && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPickerOpen(pickerOpen === "__insert__" ? null : "__insert__");
+                  }}
+                  className="flex items-center gap-0.5 rounded-[4px] px-1.5 py-[2px] text-[10px] text-fg-subtle transition hover:bg-hover hover:text-fg"
+                  title="Insert a variable"
+                >
+                  <Plus size={9} strokeWidth={2.5} />
+                  <Variable size={9} strokeWidth={2} />
+                </button>
+
+                {pickerOpen === "__insert__" && (
+                  <div className="absolute left-0 top-full z-50 mt-1 min-w-[180px] rounded-[6px] border border-line bg-base shadow-lg">
+                    {availableVars
+                      .filter((v) => !inputs.includes(v.name))
+                      .map((v) => (
+                        <button
+                          key={v.name}
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            insertVariable(v.name);
+                          }}
+                          className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] transition hover:bg-hover"
+                        >
+                          <Variable size={10} className="shrink-0 text-fg-subtle" />
+                          <span className="font-mono font-medium text-fg">{v.name}</span>
+                          <span className="ml-auto truncate text-[9.5px] text-fg-subtle">{v.sourceLabel}</span>
+                        </button>
+                      ))}
+                    {availableVars.filter((v) => !inputs.includes(v.name)).length === 0 && (
+                      <div className="px-2.5 py-1.5 text-[10.5px] text-fg-subtle">All variables already used</div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {showOptions && (
           <StepOptions
