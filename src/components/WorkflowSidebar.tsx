@@ -171,7 +171,11 @@ export function WorkflowSidebar() {
                   <div className="absolute top-2 right-1.5 flex gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
                     <button
                       type="button"
-                      onClick={() => beginRename(workflow)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        beginRename(workflow);
+                      }}
                       title={`Rename “${workflow.name}”`}
                       className="flex size-5 items-center justify-center rounded-[4px] text-fg-subtle hover:bg-base hover:text-fg"
                     >
@@ -179,7 +183,11 @@ export function WorkflowSidebar() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => void deleteWorkflow(workflow)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        void deleteWorkflow(workflow);
+                      }}
                       title={`Delete “${workflow.name}”`}
                       className="flex size-5 items-center justify-center rounded-[4px] text-fg-subtle hover:bg-danger hover:text-white"
                     >
