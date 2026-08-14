@@ -21,6 +21,7 @@ import {
   FileUp,
   FileDown,
   Variable,
+  ArrowUpFromLine,
   type LucideIcon,
 } from "lucide-react";
 import type { NodeKind } from "@/types/workflow";
@@ -228,6 +229,21 @@ export const CATALOG: CatalogEntry[] = [
       what: "Evaluates a string expression and assigns the result to a new workflow variable.",
       when: "Use this to define static configuration constants, or to concatenate existing variables together.",
       example: "Set {{url}} = https://api.example.com/{{version}}",
+    },
+  },
+  {
+    kind: "bump_version",
+    label: "Bump Version",
+    summary: "Increment a semantic version",
+    detail: "Bumps the major, minor, or patch part of a v1.2.3 string",
+    icon: ArrowUpFromLine,
+    accent: "success",
+    group: "Values",
+    keywords: ["bump", "version", "semver", "tag", "release", "increment"],
+    documentation: {
+      what: "Parses a semantic version from an input variable and increments the specified part (major, minor, or patch).",
+      when: "Use this when you want to automatically calculate the next version tag for a git release.",
+      example: "Bump minor of {{current_version}} into {{next_version}}",
     },
   },
   {

@@ -185,8 +185,10 @@ function stepDetail(node: BlockNodeType): string {
       return `Write: ${node.data.path.trim()}`;
     case "set_variable":
       return `Set: ${node.data.variable.trim()}`;
+    case "bump_version":
+      return `Bump: ${node.data.variableIn.trim()}`;
     default:
-      return node.data.message.trim();
+      return "message" in node.data ? node.data.message.trim() : "Unknown";
   }
 }
 

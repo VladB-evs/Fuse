@@ -462,6 +462,16 @@ async fn automated_step(
             .await
         }
 
+        NodePayload::BumpVersion(data) => {
+            steps::run_bump_version(
+                data,
+                substitute(&data.variable_in, values, Quoting::Raw),
+                working_dir,
+                &reporter,
+            )
+            .await
+        }
+
 
         _ => steps::StepOutcome {
             status: NodeStatus::Skipped,

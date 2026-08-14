@@ -664,3 +664,77 @@ pub(crate) async fn run_set_variable(
         branch: None,
     }
 }
+
+pub(crate) async fn run_bump_version(
+    data: &crate::model::BumpVersionData,
+    value_in: String,
+    working_dir: PathBuf,
+    reporter: &Reporter<'_>,
+) -> StepOutcome {
+    reporter.started(&working_dir);
+
+    if data.variable_out.trim().is_empty() {
+        reporter.err("No output variable name provided.");
+        return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
+    }
+
+    let input = value_in.trim();
+    if input.is_empty() {
+        reporter.err("Input version is empty.");
+        return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
+    }
+
+    // Attempt to parse semantic version. We optionally strip a leading "v".
+    let version_str = if input.starts_with('v') || input.starts_with('V') {
+        &input[1..]
+    } else {
+        input
+    };
+
+    let mut version = match semver::Version::parse(version_str) {
+        Ok(v) => v,
+        Err(err) => {
+            reporter.err(format!("Could not parse as semantic version (e.g. 1.2.3): {}", err));
+            return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
+        }
+    };
+
+    match data.part.as_str() {
+        "major" => {
+            version.major += 1;
+            version.minor = 0;
+            version.patch = 0;
+            version.pre = semver::Prerelease::EMPTY;
+        }
+        "minor" => {
+            version.minor += 1;
+            version.patch = 0;
+            version.pre = semver::Prerelease::EMPTY;
+        }
+        "patch" => {
+            version.patch += 1;
+            version.pre = semver::Prerelease::EMPTY;
+        }
+        _ => {
+            reporter.err(format!("Unknown bump type: {}", data.part));
+            return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
+        }
+    }
+
+    // Preserve 'v' prefix if it was there
+    let output = if input.starts_with('v') {
+        format!("v{}", version)
+    } else if input.starts_with('V') {
+        format!("V{}", version)
+    } else {
+        version.to_string()
+    };
+
+    reporter.out(format!("Bumped {} to {}", input, output));
+    
+    StepOutcome {
+        status: reporter.finished(NodeStatus::Success, Some(0)),
+        value: Some((data.variable_out.trim().to_string(), output)),
+        branch: None,
+    }
+}

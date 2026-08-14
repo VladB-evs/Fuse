@@ -17,6 +17,10 @@ import {
   Unlink,
   ZoomIn,
   ZoomOut,
+  Download,
+  Upload,
+  FileJson,
+  LayoutTemplate,
   type LucideIcon,
 } from "lucide-react";
 import { listWorkflows } from "@/bridge/commands";
@@ -30,7 +34,11 @@ import {
   chooseWorkingDirectory,
   openNodePicker,
   openWorkflowById,
+  exportWorkflow,
+  importWorkflow,
+  importBlocks,
 } from "@/lib/actions";
+import { autoLayoutGraph } from "@/lib/layout";
 import { cn } from "@/lib/utils";
 import type { WorkflowSummary } from "@/types/workflow";
 
@@ -184,11 +192,23 @@ export function CommandPalette() {
                 >
                   Open workflow…
                 </Item>
+                <Item icon={Download} onSelect={act(exportWorkflow)}>
+                  Export workflow…
+                </Item>
+                <Item icon={Upload} onSelect={act(importWorkflow)}>
+                  Import workflow…
+                </Item>
+                <Item icon={FileJson} onSelect={act(importBlocks)}>
+                  Import blocks into canvas…
+                </Item>
               </Group>
 
               <Group heading="View">
                 <Item icon={PanelBottom} onSelect={act(toggleOutput)} shortcut="⌘ /">
                   Toggle output panel
+                </Item>
+                <Item icon={LayoutTemplate} onSelect={act(autoLayoutGraph)}>
+                  Auto layout graph
                 </Item>
                 <Item icon={Maximize2} onSelect={act(() => fitView({ padding: 0.3, duration: 240, maxZoom: 1 }))}>
                   Fit canvas

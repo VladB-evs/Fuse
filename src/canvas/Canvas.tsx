@@ -12,6 +12,7 @@ import {
   type Connection,
   type FinalConnectionState,
   MarkerType,
+  type Edge as RFEdge,
 } from "@xyflow/react";
 import { Maximize2, Minus, Plus } from "lucide-react";
 import { nodeTypes } from "./nodes";
@@ -21,7 +22,7 @@ import { SOURCE_PORT, TARGET_PORT } from "./ports";
 import { GRID, useWorkflowStore } from "@/store/workflowStore";
 import { useRuntimeStore } from "@/store/runtimeStore";
 import { useUIStore } from "@/store/uiStore";
-import { addCommandBlock, setCanvasProjection } from "@/lib/actions";
+import { setCanvasProjection } from "@/lib/actions";
 import { Kbd } from "@/components/ui/Kbd";
 import { cn } from "@/lib/utils";
 import type { FuseEdge, FuseNode } from "@/types/workflow";
@@ -182,29 +183,28 @@ export function Canvas() {
     useUIStore.getState().notify("Wire cut");
   }, []);
 
-  const handleDoubleClick = useCallback(
-    (event: ReactMouseEvent<HTMLDivElement>) => {
-      const target = event.target as HTMLElement;
-      // A frame is scenery: double-clicking over one still drops a block,
-      // which is how blocks get *into* a frame in the first place.
-      const node = target.closest(".react-flow__node");
-      if ((node && !node.classList.contains("react-flow__node-frame")) ||
-        target.closest(".react-flow__edge")
-      ) {
-        return;
-      }
+  const isValidConnection = useCallback((connection: Connection | RFEdge) => {
+    const { source, target } = connection;
+    const nodes = getNodes();
+    const sourceNode = nodes.find(n => n.id === source);
+    const targetNode = nodes.find(n => n.id === target);
 
-      const point = screenToFlowPosition({ x: event.clientX, y: event.clientY });
-      // Drop the block centred on the pointer.
-      addCommandBlock({ x: point.x - 144, y: point.y - 44 });
-    },
-    [screenToFlowPosition],
-  );
+    if (!sourceNode || !targetNode) return false;
+
+    // Prevent frames from connecting to their own members to avoid infinite loops
+    if (sourceNode.type !== "frame" && targetNode.type === "frame") {
+      if ((sourceNode.data as any).frameId === targetNode.id) return false;
+    }
+    if (targetNode.type !== "frame" && sourceNode.type === "frame") {
+      if ((targetNode.data as any).frameId === sourceNode.id) return false;
+    }
+
+    return true;
+  }, [getNodes]);
 
   return (
     <div
       className={cn("relative min-h-0 flex-1", connecting && "is-connecting")}
-      onDoubleClick={handleDoubleClick}
     >
       <ReactFlow
         nodes={nodes}
@@ -213,6 +213,7 @@ export function Canvas() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onConnectEnd={handleConnectEnd}
+        isValidConnection={isValidConnection}
         // Wires can be picked up by either end: dropped on another block they
         // move, dropped on nothing they are cut.
         onReconnectStart={handleReconnectStart}

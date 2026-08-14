@@ -13,6 +13,7 @@ import { NoteNode } from "./NoteNode";
 import { ReadFileNode } from "./ReadFileNode";
 import { WriteFileNode } from "./WriteFileNode";
 import { SetVariableNode } from "./SetVariableNode";
+import { BumpVersionNode } from "./BumpVersionNode";
 
 /**
  * Node registry.
@@ -36,4 +37,5 @@ export const nodeTypes: NodeTypes = {
   read_file: ReadFileNode,
   write_file: WriteFileNode,
   set_variable: SetVariableNode,
+  bump_version: BumpVersionNode,
 };

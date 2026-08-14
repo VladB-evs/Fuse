@@ -33,7 +33,8 @@ export type NodeKind =
   | "note"
   | "read_file"
   | "write_file"
-  | "set_variable";
+  | "set_variable"
+  | "bump_version";
 
 /** Every kind except a frame — the things that appear in a run. */
 export type BlockKind = Exclude<NodeKind, "frame">;
@@ -155,6 +156,12 @@ export type SetVariableData = BlockCommon & {
   value: string;
 };
 
+export type BumpVersionData = BlockCommon & {
+  variableIn: string;
+  variableOut: string;
+  part: string;
+};
+
 export type BlockData =
   | CommandData
   | ApprovalData
@@ -168,7 +175,8 @@ export type BlockData =
   | NoteData
   | ReadFileData
   | WriteFileData
-  | SetVariableData;
+  | SetVariableData
+  | BumpVersionData;
 
 export type FrameData = {
   label: string;
@@ -264,6 +272,7 @@ export type NoteNodeType = RFNode<NoteData, "note">;
 export type ReadFileNodeType = RFNode<ReadFileData, "read_file">;
 export type WriteFileNodeType = RFNode<WriteFileData, "write_file">;
 export type SetVariableNodeType = RFNode<SetVariableData, "set_variable">;
+export type BumpVersionNodeType = RFNode<BumpVersionData, "bump_version">;
 
 /** Anything that takes part in a run. */
 export type BlockNodeType =
@@ -279,7 +288,8 @@ export type BlockNodeType =
   | NoteNodeType
   | ReadFileNodeType
   | WriteFileNodeType
-  | SetVariableNodeType;
+  | SetVariableNodeType
+  | BumpVersionNodeType;
 
 export type FuseNode = BlockNodeType | FrameNodeType;
 export type FuseEdge = RFEdge;

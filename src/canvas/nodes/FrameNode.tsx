@@ -1,10 +1,10 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Handle, type NodeProps } from "@xyflow/react";
-import { Pencil, Play } from "lucide-react";
+import { Pencil, Play, Download } from "lucide-react";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useRuntimeStore } from "@/store/runtimeStore";
 import { useUIStore } from "@/store/uiStore";
-import { runFrame } from "@/lib/actions";
+import { runFrame, exportFrame } from "@/lib/actions";
 import { membersOf } from "@/lib/frames";
 import { cn } from "@/lib/utils";
 import { PORTS } from "../ports";
@@ -120,6 +120,22 @@ function FrameNodeImpl({ id, data, selected }: NodeProps<FrameNodeType>) {
         >
           <Play size={8} fill="currentColor" strokeWidth={0} />
           Run
+        </button>
+
+        <button
+          type="button"
+          title="Export frame blocks to JSON"
+          onClick={(e) => {
+            e.stopPropagation();
+            void exportFrame(id);
+          }}
+          className={cn(
+            "nodrag flex shrink-0 items-center gap-1 rounded-[5px] px-1.5 py-0.5",
+            "text-[10.5px] font-medium text-fg-muted transition",
+            "hover:bg-hover hover:text-fg",
+          )}
+        >
+          <Download size={10} strokeWidth={2} />
         </button>
       </div>
 

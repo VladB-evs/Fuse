@@ -22,6 +22,9 @@ import {
 import { SOURCE_PORT, TARGET_PORT } from "@/canvas/ports";
 import { catalogEntry } from "@/lib/catalog";
 import { fillPlaceholders, fillPlaceholdersRaw, placeholdersIn } from "@/lib/placeholders";
+import { save, open } from "@tauri-apps/plugin-dialog";
+import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
+import { v4 as uuidv4 } from "uuid";
 
 
 const LAST_OPENED_KEY = "fuse.lastWorkflowId";
@@ -565,6 +568,160 @@ export async function answerPrompt(
 export async function stopCurrentRun(): Promise<void> {
   try {
     await api.stopRun();
+  } catch (error) {
+    useUIStore.getState().notify(message(error), "error");
+  }
+}
+
+// --- Import / Export ------------------------------------------------------
+
+export async function deleteWorkflowAction(id: string): Promise<void> {
+  try {
+    await api.deleteWorkflow(id);
+    const state = useWorkflowStore.getState();
+    if (state.id === id) {
+      // If we deleted the active workflow, open a new blank one
+      await createNewWorkflow();
+    }
+  } catch (error) {
+    useUIStore.getState().notify(message(error), "error");
+  }
+}
+
+export async function exportWorkflow(): Promise<void> {
+  try {
+    const doc = useWorkflowStore.getState().toDocument();
+    const filePath = await save({
+      filters: [{ name: "Fuse Workflow", extensions: ["json"] }],
+      defaultPath: `${doc.name}.json`,
+    });
+    if (!filePath) return;
+    
+    await writeTextFile(filePath, JSON.stringify(doc, null, 2));
+    useUIStore.getState().notify("Workflow exported successfully");
+  } catch (error) {
+    useUIStore.getState().notify(message(error), "error");
+  }
+}
+
+export async function importWorkflow(): Promise<void> {
+  try {
+    const filePath = await open({
+      filters: [{ name: "Fuse Workflow", extensions: ["json"] }],
+      multiple: false,
+      directory: false,
+    });
+    if (!filePath || Array.isArray(filePath)) return;
+
+    const content = await readTextFile(filePath);
+    const doc = JSON.parse(content) as WorkflowDocument;
+    
+    if (!doc.nodes || !doc.edges) {
+      throw new Error("Invalid Fuse workflow format");
+    }
+
+    // Generate a new UUID so we don't overwrite existing workflows by mistake
+    const newId = uuidv4();
+    doc.id = newId;
+    doc.name = doc.name.endsWith(" (Imported)") ? doc.name : `${doc.name} (Imported)`;
+    
+    const saved = await api.saveWorkflow(doc);
+    useWorkflowStore.getState().loadDocument(saved);
+    rememberLastOpened(saved.id);
+    useUIStore.getState().notify(`Imported “${saved.name}”`);
+  } catch (error) {
+    useUIStore.getState().notify(message(error), "error");
+  }
+}
+
+export async function exportFrame(frameId: string): Promise<void> {
+  try {
+    const state = useWorkflowStore.getState();
+    const frame = state.nodes.find((n) => n.id === frameId);
+    if (!frame) throw new Error("Frame not found");
+
+    const children = state.nodes.filter((n) => n.type !== "frame" && n.data && "frameId" in n.data && (n.data as any).frameId === frameId);
+    const nodesToExport = [frame, ...children];
+    const nodeIds = new Set(nodesToExport.map((n) => n.id));
+    
+    const edgesToExport = state.edges.filter(
+      (e) => nodeIds.has(e.source) && nodeIds.has(e.target)
+    );
+
+    const partialDoc = {
+      type: "fuse_export",
+      version: 1,
+      nodes: nodesToExport,
+      edges: edgesToExport,
+    };
+
+    const filePath = await save({
+      filters: [{ name: "Fuse Export", extensions: ["json"] }],
+      defaultPath: `${frame.data.label || "Frame"}.json`,
+    });
+    if (!filePath) return;
+    
+    await writeTextFile(filePath, JSON.stringify(partialDoc, null, 2));
+    useUIStore.getState().notify("Frame exported successfully");
+  } catch (error) {
+    useUIStore.getState().notify(message(error), "error");
+  }
+}
+
+export async function importBlocks(): Promise<void> {
+  try {
+    const filePath = await open({
+      filters: [{ name: "Fuse Export", extensions: ["json"] }],
+      multiple: false,
+      directory: false,
+    });
+    if (!filePath || Array.isArray(filePath)) return;
+
+    const content = await readTextFile(filePath);
+    const parsed = JSON.parse(content);
+    
+    // Support both full workflows and partial frame exports
+    const nodes: PersistedNode[] = parsed.nodes || [];
+    const edges = parsed.edges || [];
+    
+    if (nodes.length === 0) {
+      throw new Error("No blocks found in file");
+    }
+
+    // Remap IDs so we can import multiple times without collision
+    const idMap = new Map<string, string>();
+    nodes.forEach((n) => idMap.set(n.id, uuidv4()));
+
+    const newNodes = nodes.map((n) => {
+      const cloned = { ...n, id: idMap.get(n.id)! };
+      // Move them down and right slightly so they don't exactly overlap current ones
+      cloned.position = { x: cloned.position.x + 30, y: cloned.position.y + 30 };
+      if (cloned.type !== "frame" && cloned.data && "frameId" in cloned.data && typeof (cloned.data as any).frameId === "string") {
+        const fId = (cloned.data as any).frameId;
+        if (idMap.has(fId)) {
+          cloned.data = { ...cloned.data, frameId: idMap.get(fId)! };
+        } else {
+          // Frame wasn't exported, so make it loose
+          cloned.data = { ...cloned.data, frameId: null };
+        }
+      }
+      return cloned;
+    });
+
+    const newEdges = edges.map((e: any) => ({
+      ...e,
+      id: uuidv4(),
+      source: idMap.get(e.source) || e.source,
+      target: idMap.get(e.target) || e.target,
+    }));
+
+    useWorkflowStore.setState((state) => ({
+      nodes: [...state.nodes, ...newNodes],
+      edges: [...state.edges, ...newEdges],
+      dirty: true,
+    }));
+    
+    useUIStore.getState().notify("Blocks imported successfully");
   } catch (error) {
     useUIStore.getState().notify(message(error), "error");
   }

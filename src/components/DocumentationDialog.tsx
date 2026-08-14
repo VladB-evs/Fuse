@@ -22,9 +22,46 @@ export function DocumentationDialog() {
   if (!open) return null;
 
   const copyForAI = () => {
-    const text = CATALOG.map((entry) => 
+    const catalogText = CATALOG.map((entry) => 
       `${entry.label} (${entry.kind}): ${entry.summary}\n${entry.documentation.what}`
     ).join("\n\n");
+
+    const schemaText = `
+---
+# Fuse Workflow JSON Schema
+
+When creating workflows or frames from scratch, output them using this exact JSON structure:
+
+\`\`\`json
+{
+  "type": "fuse_export",
+  "version": 1,
+  "nodes": [
+    {
+      "id": "uuid-v4",
+      "position": { "x": 0, "y": 0 },
+      "type": "command", // The kind of block (e.g. command, script, frame, etc.)
+      "data": {
+        "frameId": null, // or uuid of the parent frame
+        "command": "echo hello", // specific fields for this block type
+        "label": "My Command"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "uuid-v4",
+      "source": "source-node-id",
+      "target": "target-node-id"
+    }
+  ]
+}
+\`\`\`
+Edges represent execution flow from the source block to the target block. 
+Use this schema when outputting 'Fuse Export' files for the user to import into their canvas.
+`;
+
+    const text = catalogText + "\n\n" + schemaText;
     navigator.clipboard.writeText(text);
   };
 

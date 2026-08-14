@@ -355,6 +355,14 @@ export function emptyBlock(kind: BlockKind): BlockData {
         variable: "",
         value: "",
       };
+    case "bump_version":
+      return {
+        label: "Bump Version",
+        frameId: null,
+        variableIn: "",
+        variableOut: "",
+        part: "patch",
+      };
   }
 }
 

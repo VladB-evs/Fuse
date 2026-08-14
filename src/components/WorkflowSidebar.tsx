@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FilePlus2, Folder, Pencil, RefreshCw, Workflow, X } from "lucide-react";
+import { FilePlus2, Folder, Pencil, RefreshCw, Workflow, X, Trash2 } from "lucide-react";
 import { listWorkflows } from "@/bridge/commands";
 import {
   chooseWorkingDirectory,
@@ -7,7 +7,9 @@ import {
   createNewWorkflow,
   openWorkflowById,
   renameSavedWorkflow,
+  deleteWorkflowAction,
 } from "@/lib/actions";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import { cn, prettyPath } from "@/lib/utils";
 import { useWorkflowStore } from "@/store/workflowStore";
 import type { WorkflowSummary } from "@/types/workflow";
@@ -69,6 +71,17 @@ export function WorkflowSidebar() {
       refresh();
     } catch {
       // The action has already shown a useful error in the toolbar.
+    }
+  };
+
+  const deleteWorkflow = async (workflow: WorkflowSummary) => {
+    const yes = await confirm(`Are you sure you want to delete “${workflow.name}”?`, {
+      title: "Delete Workflow",
+      kind: "warning",
+    });
+    if (yes) {
+      await deleteWorkflowAction(workflow.id);
+      refresh();
     }
   };
 
@@ -149,14 +162,24 @@ export function WorkflowSidebar() {
                   </button>
                 )}
                 {!editing && (
-                  <button
-                    type="button"
-                    onClick={() => beginRename(workflow)}
-                    title={`Rename “${workflow.name}”`}
-                    className="absolute top-2 right-1.5 flex size-5 items-center justify-center rounded-[4px] text-fg-subtle opacity-0 transition hover:bg-base hover:text-fg group-hover:opacity-100 focus-visible:opacity-100"
-                  >
-                    <Pencil size={10} strokeWidth={2} />
-                  </button>
+                  <div className="absolute top-2 right-1.5 flex gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                    <button
+                      type="button"
+                      onClick={() => beginRename(workflow)}
+                      title={`Rename “${workflow.name}”`}
+                      className="flex size-5 items-center justify-center rounded-[4px] text-fg-subtle hover:bg-base hover:text-fg"
+                    >
+                      <Pencil size={10} strokeWidth={2} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void deleteWorkflow(workflow)}
+                      title={`Delete “${workflow.name}”`}
+                      className="flex size-5 items-center justify-center rounded-[4px] text-fg-subtle hover:bg-danger hover:text-white"
+                    >
+                      <Trash2 size={10} strokeWidth={2} />
+                    </button>
+                  </div>
                 )}
               </div>
             );

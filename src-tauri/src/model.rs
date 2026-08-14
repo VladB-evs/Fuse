@@ -60,6 +60,8 @@ pub enum NodePayload {
     WriteFile(WriteFileData),
     /// Sets a variable inside the workflow state.
     SetVariable(SetVariableData),
+    /// Parses a semantic version and increments it.
+    BumpVersion(BumpVersionData),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -377,6 +379,27 @@ pub struct WorkflowNode {
     #[serde(flatten)]
     pub payload: NodePayload,
 }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct BumpVersionData {
+    pub label: String,
+    pub frame_id: Option<String>,
+    pub variable_in: String,
+    pub variable_out: String,
+    pub part: String,
+}
+
+impl Default for BumpVersionData {
+    fn default() -> Self {
+        Self {
+            label: "Bump Version".into(),
+            frame_id: None,
+            variable_in: String::new(),
+            variable_out: String::new(),
+            part: "patch".into(),
+        }
+    }
+}
 
 impl WorkflowNode {
     pub fn command(&self) -> Option<&CommandData> {
@@ -415,6 +438,7 @@ impl WorkflowNode {
             NodePayload::ReadFile(r) => r.frame_id.as_deref(),
             NodePayload::WriteFile(w) => w.frame_id.as_deref(),
             NodePayload::SetVariable(s) => s.frame_id.as_deref(),
+            NodePayload::BumpVersion(b) => b.frame_id.as_deref(),
             NodePayload::Frame(_) => None,
         }
     }
@@ -480,6 +504,7 @@ impl WorkflowNode {
             NodePayload::ReadFile(r) => named(&r.label, "Read File"),
             NodePayload::WriteFile(w) => named(&w.label, "Write File"),
             NodePayload::SetVariable(s) => named(&s.label, "Set Variable"),
+            NodePayload::BumpVersion(b) => named(&b.label, "Bump Version"),
         }
     }
 
@@ -516,6 +541,7 @@ impl WorkflowNode {
             NodePayload::ReadFile(r) => format!("Read into {}", r.variable),
             NodePayload::WriteFile(w) => format!("Write {}", w.path),
             NodePayload::SetVariable(s) => format!("Set {} = {}", s.variable, s.value),
+            NodePayload::BumpVersion(b) => format!("Bump {} ({})", b.variable_in, b.part),
             NodePayload::Frame(_) => String::new(),
         }
     }
