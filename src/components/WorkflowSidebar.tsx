@@ -10,6 +10,7 @@ import {
   deleteWorkflowAction,
 } from "@/lib/actions";
 import { confirm } from "@tauri-apps/plugin-dialog";
+import { getVersion } from "@tauri-apps/api/app";
 import { cn, prettyPath } from "@/lib/utils";
 import { useWorkflowStore } from "@/store/workflowStore";
 import type { WorkflowSummary } from "@/types/workflow";
@@ -32,6 +33,11 @@ export function WorkflowSidebar() {
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [appVersion, setAppVersion] = useState<string>("");
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(() => {});
+  }, []);
   const cancelRenameRef = useRef(false);
 
   const refresh = useCallback(() => {
@@ -217,6 +223,11 @@ export function WorkflowSidebar() {
             </span>
           </span>
         </button>
+        {appVersion && (
+          <div className="mt-2 text-center text-[9px] text-fg-subtle/50">
+            v{appVersion}
+          </div>
+        )}
       </footer>
     </aside>
   );

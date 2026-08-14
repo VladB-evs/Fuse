@@ -49,7 +49,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/VladB-evs/Fuse/releases/latest/download/updater.json"
+        "https://github.com/VladB-evs/Fuse/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc5ODVEQ0U5MDc0NzE0RTQKUldUa0ZFY0g2ZHlGZVJ3NnlTUXhhbFRHQVpaTXVIMjRVREhCR0Q4cWFWUTVtYUdXRXY4SUE4NlgK"
     }
