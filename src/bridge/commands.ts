@@ -13,6 +13,18 @@ import type {
   WorkflowSummary,
 } from "@/types/workflow";
 
+export interface AppSettings {
+  customWorkflowDir: string | null;
+}
+
+export function getSettings(): Promise<AppSettings> {
+  return invoke("get_settings");
+}
+
+export function setWorkflowDirectory(path: string | null): Promise<void> {
+  return invoke("set_workflow_directory", { path });
+}
+
 export function listWorkflows(): Promise<WorkflowSummary[]> {
   return invoke("list_workflows");
 }

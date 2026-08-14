@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { Settings, X, Download, RefreshCw, CheckCircle2, AlertCircle } from "lucide-react";
+import { Settings, X, Download, RefreshCw, CheckCircle2, AlertCircle, Folder } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
 import { Button } from "./ui/Button";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { getSettings, setWorkflowDirectory } from "@/bridge/commands";
 
 export function SettingsDialog() {
   const open = useUIStore((s) => s.settingsOpen);
@@ -16,6 +18,15 @@ export function SettingsDialog() {
   const [error, setError] = useState<string | null>(null);
   const [installed, setInstalled] = useState(false);
 
+  const [customDir, setCustomDir] = useState<string | null>(null);
+  const [pickingDir, setPickingDir] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      getSettings().then(s => setCustomDir(s.customWorkflowDir || "Default"));
+    }
+  }, [open]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && open && !downloading) {
@@ -27,6 +38,27 @@ export function SettingsDialog() {
   }, [open, setOpen, downloading]);
 
   if (!open) return null;
+
+  async function handleChangeDirectory() {
+    setPickingDir(true);
+    try {
+      const selected = await openDialog({
+        directory: true,
+        multiple: false,
+        title: "Select Workflow Storage Location",
+      });
+      if (selected && typeof selected === "string") {
+        await setWorkflowDirectory(selected);
+        setCustomDir(selected);
+        useUIStore.getState().notify("Storage location updated. Reloading...");
+        setTimeout(() => window.location.reload(), 1000);
+      }
+    } catch (e) {
+      console.error("Failed to set directory:", e);
+    } finally {
+      setPickingDir(false);
+    }
+  }
 
   async function checkForUpdate() {
     setChecking(true);
@@ -178,6 +210,24 @@ export function SettingsDialog() {
                   </Button>
                 </div>
               )}
+            </div>
+
+            <div className="flex flex-col gap-4 pt-4 border-t border-line">
+              <div>
+                <h3 className="text-[13px] font-medium text-fg mb-1">Storage Location</h3>
+                <p className="text-[12px] text-fg-subtle mb-3 leading-relaxed">
+                  Choose where your workflows are saved. If you change this, your existing workflows will be copied to the new folder.
+                </p>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 min-w-0 px-3 py-2 bg-base border border-line rounded-[6px] text-[12px] font-mono text-fg truncate">
+                    {customDir || "Loading..."}
+                  </div>
+                  <Button variant="subtle" onClick={handleChangeDirectory} disabled={pickingDir} className="shrink-0">
+                    <Folder size={14} className="mr-2" />
+                    {pickingDir ? "Changing..." : "Change"}
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

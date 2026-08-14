@@ -11,8 +11,9 @@ use crate::model::{Workflow, WorkflowSummary};
 use crate::storage::WorkflowStore;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 use std::process::Command;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tokio::sync::oneshot;
@@ -59,17 +60,19 @@ pub struct RepositoryCommit {
 }
 
 pub struct AppState {
-    pub store: Arc<dyn WorkflowStore>,
+    pub store: RwLock<Arc<dyn WorkflowStore>>,
     pub active: Mutex<Option<Arc<RunControl>>>,
     pub prompts: Arc<PromptRegistry>,
+    pub app_data_dir: PathBuf,
 }
 
 impl AppState {
-    pub fn new(store: Arc<dyn WorkflowStore>) -> Self {
+    pub fn new(store: Arc<dyn WorkflowStore>, app_data_dir: PathBuf) -> Self {
         Self {
-            store,
+            store: RwLock::new(store),
             active: Mutex::new(None),
             prompts: Arc::new(PromptRegistry::default()),
+            app_data_dir,
         }
     }
 }
@@ -158,14 +161,100 @@ pub fn resolve_prompt(
 
 // --- Persistence ----------------------------------------------------------
 
+#[derive(Debug, Clone, Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AppSettings {
+    pub custom_workflow_dir: Option<String>,
+}
+
+pub fn load_settings(data_dir: &std::path::Path) -> AppSettings {
+    let path = data_dir.join("settings.json");
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        if let Ok(settings) = serde_json::from_str(&content) {
+            return settings;
+        }
+    }
+    AppSettings::default()
+}
+
+fn save_settings(data_dir: &std::path::Path, settings: &AppSettings) -> Result<(), String> {
+    let path = data_dir.join("settings.json");
+    let content = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
+    std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, String> {
+    Ok(load_settings(&state.app_data_dir))
+}
+
+#[tauri::command]
+pub async fn set_workflow_directory(
+    state: State<'_, AppState>,
+    path: Option<String>,
+) -> Result<(), String> {
+    let mut settings = load_settings(&state.app_data_dir);
+    
+    let old_dir = settings.custom_workflow_dir
+        .clone()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| state.app_data_dir.clone())
+        .join("workflows");
+    
+    // Check if the new path exists and is a directory
+    if let Some(ref dir_path) = path {
+        let p = std::path::Path::new(dir_path);
+        if !p.exists() {
+            std::fs::create_dir_all(p).map_err(|e| format!("Could not create directory: {}", e))?;
+        }
+        if !p.is_dir() {
+            return Err("Path is not a directory".to_string());
+        }
+    }
+    
+    settings.custom_workflow_dir = path.clone();
+    save_settings(&state.app_data_dir, &settings)?;
+
+    // Create a new store pointing to the new directory (or default if None)
+    let new_dir = path
+        .map(PathBuf::from)
+        .unwrap_or_else(|| state.app_data_dir.clone());
+        
+    let new_store = crate::storage::JsonStore::new(&new_dir).map_err(|e| e.to_string())?;
+    let new_workflows_dir = new_store.directory();
+    
+    // Migrate files if they don't already exist in the new directory
+    if old_dir.exists() && old_dir != new_workflows_dir {
+        if let Ok(entries) = std::fs::read_dir(&old_dir) {
+            for entry in entries.filter_map(Result::ok) {
+                let file_type = entry.file_type().unwrap();
+                if file_type.is_file() {
+                    let file_name = entry.file_name();
+                    let target_path = new_workflows_dir.join(&file_name);
+                    if !target_path.exists() {
+                        let _ = std::fs::copy(entry.path(), target_path);
+                    }
+                }
+            }
+        }
+    }
+    
+    let mut store_lock = state.store.write().map_err(|_| "Failed to lock store".to_string())?;
+    *store_lock = Arc::new(new_store);
+
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn list_workflows(state: State<'_, AppState>) -> Result<Vec<WorkflowSummary>, String> {
-    state.store.list().map_err(|e| e.to_string())
+    let store = state.store.read().unwrap().clone();
+    store.list().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn load_workflow(state: State<'_, AppState>, id: String) -> Result<Workflow, String> {
-    state.store.load(&id).map_err(|e| e.to_string())
+    let store = state.store.read().unwrap().clone();
+    store.load(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -173,12 +262,14 @@ pub async fn save_workflow(
     state: State<'_, AppState>,
     workflow: Workflow,
 ) -> Result<Workflow, String> {
-    state.store.save(&workflow).map_err(|e| e.to_string())
+    let store = state.store.read().unwrap().clone();
+    store.save(&workflow).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn delete_workflow(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    state.store.delete(&id).map_err(|e| e.to_string())
+    let store = state.store.read().unwrap().clone();
+    store.delete(&id).map_err(|e| e.to_string())
 }
 
 // --- Execution ------------------------------------------------------------
