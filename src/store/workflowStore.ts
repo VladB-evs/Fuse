@@ -365,6 +365,16 @@ export function emptyBlock(kind: BlockKind): BlockData {
         variableOut: "",
         part: "patch",
       };
+    case "ai_commit":
+      return {
+        label: "AI Commit Summary",
+        frameId: null,
+        variable: "commit_message",
+        scope: "staged",
+        style: "conventional",
+        workingDir: null,
+        continueOnError: false,
+      };
   }
 }
 
@@ -686,7 +696,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
           // Collect all variables already produced by other nodes.
           const knownVars = new Set<string>();
           for (const n of state.nodes) {
-            if (n.type === "input" || n.type === "capture" || n.type === "read_file" || n.type === "set_variable" || n.type === "http") {
+            if (n.type === "input" || n.type === "capture" || n.type === "read_file" || n.type === "set_variable" || n.type === "http" || n.type === "ai_commit") {
               const v = (n.data as any).variable?.trim();
               if (v) knownVars.add(v);
             } else if (n.type === "bump_version") {
@@ -713,7 +723,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
               for (const edge of incoming) {
                 const src = state.nodes.find((n) => n.id === edge.source);
                 if (!src) continue;
-                if (src.type === "input" || src.type === "capture" || src.type === "read_file" || src.type === "set_variable" || src.type === "http") {
+                if (src.type === "input" || src.type === "capture" || src.type === "read_file" || src.type === "set_variable" || src.type === "http" || src.type === "ai_commit") {
                   upstreamVar = (src.data as any).variable?.trim() || null;
                 } else if (src.type === "bump_version") {
                   upstreamVar = (src.data as any).variableOut?.trim() || null;

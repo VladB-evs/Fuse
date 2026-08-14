@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Circle, Eraser, Minus, X } from "lucide-react";
+import { Check, ChevronDown, Circle, Copy, Eraser, Minus, X } from "lucide-react";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useRuntimeStore } from "@/store/runtimeStore";
 import { useUIStore } from "@/store/uiStore";
@@ -33,6 +33,7 @@ export function OutputPanel({ homeDir }: { homeDir: string }) {
   const clearOutput = useRuntimeStore((s) => s.clearOutput);
 
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
+  const [copied, setCopied] = useState(false);
 
   // Steps follow the resolved run order once a run exists; before that, top-to
   // bottom on the canvas is the closest honest guess.
@@ -59,6 +60,20 @@ export function OutputPanel({ homeDir }: { homeDir: string }) {
   }, [nodes, order, statuses]);
 
   const activeId = inspectedNodeId ?? steps[0]?.id ?? null;
+
+  const handleCopyOutput = useCallback(() => {
+    if (!activeId) return;
+    const lines = useRuntimeStore.getState().output[activeId];
+    if (!lines || lines.length === 0) {
+      useUIStore.getState().notify("No output to copy");
+      return;
+    }
+    const text = lines.map((l) => l.text).join("\n");
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    useUIStore.getState().notify("Output copied to clipboard");
+    setTimeout(() => setCopied(false), 2000);
+  }, [activeId]);
 
   const startResize = useCallback(
     (event: React.MouseEvent) => {
@@ -102,15 +117,35 @@ export function OutputPanel({ homeDir }: { homeDir: string }) {
         </span>
         <div className="flex-1" />
         {activeId && (
-          <button
-            type="button"
-            onClick={() => clearOutput(activeId)}
-            title="Clear this block's output"
-            className="flex items-center gap-1 rounded-[5px] px-1.5 py-1 text-[11px] text-fg-subtle transition hover:bg-hover hover:text-fg"
-          >
-            <Eraser size={11} strokeWidth={1.75} />
-            Clear
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={handleCopyOutput}
+              title="Copy output to clipboard"
+              className="flex items-center gap-1 rounded-[5px] px-1.5 py-1 text-[11px] text-fg-subtle transition hover:bg-hover hover:text-fg"
+            >
+              {copied ? (
+                <>
+                  <Check size={11} strokeWidth={2.5} className="text-success" />
+                  <span className="text-success">Copied</span>
+                </>
+              ) : (
+                <>
+                  <Copy size={11} strokeWidth={1.75} />
+                  Copy
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => clearOutput(activeId)}
+              title="Clear this block's output"
+              className="flex items-center gap-1 rounded-[5px] px-1.5 py-1 text-[11px] text-fg-subtle transition hover:bg-hover hover:text-fg"
+            >
+              <Eraser size={11} strokeWidth={1.75} />
+              Clear
+            </button>
+          </>
         )}
         <button
           type="button"
@@ -187,6 +222,8 @@ function stepDetail(node: BlockNodeType): string {
       return `Set: ${node.data.variable.trim()}`;
     case "bump_version":
       return `Bump: ${node.data.variableIn.trim()}`;
+    case "ai_commit":
+      return `AI Commit: ${node.data.variable.trim()}`;
     default:
       return "message" in node.data ? node.data.message.trim() : "Unknown";
   }

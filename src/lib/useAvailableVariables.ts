@@ -35,7 +35,8 @@ export function useAvailableVariables(): AvailableVariable[] {
           node.type === "capture" ||
           node.type === "read_file" ||
           node.type === "set_variable" ||
-          node.type === "http") &&
+          node.type === "http" ||
+          node.type === "ai_commit") &&
         typeof d.variable === "string" &&
         d.variable.trim()
       ) {

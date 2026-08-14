@@ -10,7 +10,7 @@
 
 use super::events::{EngineEvent, EventSink, NodeStatus, OutputStream};
 use super::process::{self, CommandSpec, RunControl};
-use crate::model::{CaptureData, ConditionData, HttpData, ScriptData, WaitData, ReadFileData, WriteFileData, SetVariableData, now_ms};
+use crate::model::{AiCommitData, CaptureData, ConditionData, HttpData, ScriptData, WaitData, ReadFileData, WriteFileData, SetVariableData, now_ms};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -750,5 +750,246 @@ pub(crate) async fn run_bump_version(
         status: reporter.finished_with_value(NodeStatus::Success, Some(0), output.clone()),
         value: Some((data.variable_out.trim().to_string(), output)),
         branch: None,
+    }
+}
+
+pub(crate) async fn run_ai_commit(
+    data: &AiCommitData,
+    control: &RunControl,
+    working_dir: PathBuf,
+    reporter: &Reporter<'_>,
+) -> StepOutcome {
+    reporter.started(&working_dir);
+
+    if data.variable.trim().is_empty() {
+        reporter.err("No output variable name provided.");
+        return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
+    }
+
+    reporter.out(format!("Inspecting repository changes in {}...", process::display_dir(&working_dir)));
+
+    // 1. Check staged changes first
+    let mut diff_ran = run_line(
+        "git diff --cached".to_string(),
+        working_dir.clone(),
+        Vec::new(),
+        control,
+        reporter,
+        false,
+        true,
+    )
+    .await;
+
+    // If scope is "all" or staged diff is empty, also check working tree diff
+    if data.scope == "all" || diff_ran.stdout.trim().is_empty() {
+        let all_diff_ran = run_line(
+            "git diff HEAD".to_string(),
+            working_dir.clone(),
+            Vec::new(),
+            control,
+            reporter,
+            false,
+            true,
+        )
+        .await;
+
+        if !all_diff_ran.stdout.trim().is_empty() {
+            diff_ran = all_diff_ran;
+        } else {
+            let working_diff = run_line(
+                "git diff".to_string(),
+                working_dir.clone(),
+                Vec::new(),
+                control,
+                reporter,
+                false,
+                true,
+            )
+            .await;
+            if !working_diff.stdout.trim().is_empty() {
+                diff_ran = working_diff;
+            }
+        }
+    }
+
+    // Also get status porcelain to catch newly added / untracked files
+    let status_ran = run_line(
+        "git status --porcelain".to_string(),
+        working_dir.clone(),
+        Vec::new(),
+        control,
+        reporter,
+        false,
+        true,
+    )
+    .await;
+
+    let diff_text = diff_ran.stdout.trim();
+    let status_text = status_ran.stdout.trim();
+
+    if diff_text.is_empty() && status_text.is_empty() {
+        reporter.err("No changes found in git repository (working tree clean).");
+        let fallback = "chore: working tree clean".to_string();
+        if data.continue_on_error {
+            return StepOutcome {
+                status: reporter.finished_with_value(NodeStatus::Success, Some(0), fallback.clone()),
+                value: Some((data.variable.trim().to_string(), fallback)),
+                branch: None,
+            };
+        } else {
+            return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
+        }
+    }
+
+    reporter.out(format!("Inspecting repository changes in {}...", process::display_dir(&working_dir)));
+
+    let summary = summarize_diff(diff_text, status_text, &data.style);
+
+    reporter.out(format!("✨ Generated commit message: \"{}\"", summary));
+
+    StepOutcome {
+        status: reporter.finished_with_value(NodeStatus::Success, Some(0), summary.clone()),
+        value: Some((data.variable.trim().to_string(), summary)),
+        branch: None,
+    }
+}
+
+fn summarize_diff(diff: &str, status: &str, style: &str) -> String {
+    let mut files = Vec::new();
+    let mut is_new_file = false;
+    let mut is_deleted_file = false;
+
+    for line in status.lines() {
+        let line = line.trim();
+        if line.len() > 3 {
+            let flag = &line[0..2];
+            let filename = line[3..].trim();
+            if flag.contains('A') || flag.contains('?') {
+                is_new_file = true;
+            }
+            if flag.contains('D') {
+                is_deleted_file = true;
+            }
+            files.push(filename.to_string());
+        }
+    }
+
+    if files.is_empty() {
+        for line in diff.lines() {
+            if let Some(rest) = line.strip_prefix("diff --git a/") {
+                if let Some(idx) = rest.find(" b/") {
+                    files.push(rest[..idx].to_string());
+                }
+            }
+        }
+    }
+
+    let mut scopes = std::collections::BTreeMap::new();
+    for f in &files {
+        let parts: Vec<&str> = f.split('/').collect();
+        let scope = if parts.len() > 2 && parts[0] == "src" {
+            parts[1]
+        } else if parts.len() > 2 && parts[0] == "src-tauri" && parts[1] == "src" {
+            parts[2]
+        } else if parts.len() > 1 {
+            parts[0]
+        } else {
+            "root"
+        };
+        *scopes.entry(scope).or_insert(0) += 1;
+    }
+
+    let top_scope = scopes.into_iter().max_by_key(|&(_, count)| count).map(|(s, _)| s).unwrap_or("app");
+    let clean_scope = if top_scope.ends_with(".rs") {
+        top_scope.strip_suffix(".rs").unwrap_or(top_scope)
+    } else if top_scope.ends_with(".tsx") {
+        top_scope.strip_suffix(".tsx").unwrap_or(top_scope)
+    } else if top_scope.ends_with(".ts") {
+        top_scope.strip_suffix(".ts").unwrap_or(top_scope)
+    } else if top_scope.ends_with(".css") {
+        top_scope.strip_suffix(".css").unwrap_or(top_scope)
+    } else {
+        top_scope
+    };
+
+    let lower_diff = diff.to_lowercase();
+    let has_fix = lower_diff.contains("fix") || lower_diff.contains("bug") || lower_diff.contains("clipping") || lower_diff.contains("overflow") || lower_diff.contains("error") || lower_diff.contains("patch") || lower_diff.contains("flicker");
+    let has_feat = is_new_file || lower_diff.contains("add") || lower_diff.contains("feature") || lower_diff.contains("implement") || lower_diff.contains("support") || lower_diff.contains("create") || lower_diff.contains("spawn");
+    let has_chore = files.iter().all(|f| f.ends_with(".json") || f.ends_with(".yml") || f.ends_with(".toml") || f.ends_with(".lock") || f.ends_with(".md"));
+    let has_docs = files.iter().all(|f| f.ends_with(".md") || f.contains("readme"));
+    let has_style = files.iter().all(|f| f.ends_with(".css") || f.ends_with(".scss"));
+
+    let commit_type = if has_docs {
+        "docs"
+    } else if has_style {
+        "style"
+    } else if has_chore {
+        "chore"
+    } else if has_fix && !has_feat {
+        "fix"
+    } else if has_feat {
+        "feat"
+    } else if is_deleted_file {
+        "refactor"
+    } else {
+        "refactor"
+    };
+
+    // Extract high-signal feature modifications
+    let mut feature_hints = Vec::new();
+    let files_str = files.join(" ");
+
+    if files_str.contains("AiCommit") || files_str.contains("ai_commit") {
+        feature_hints.push("add AI commit summarizer block");
+    }
+    if files_str.contains("OutputPanel") {
+        feature_hints.push("make output panel selectable and copiable");
+    }
+    if files_str.contains("Canvas") && (lower_diff.contains("spawn") || lower_diff.contains("doubleclick") || lower_diff.contains("cursor")) {
+        feature_hints.push("support node spawning at cursor location");
+    }
+    if lower_diff.contains("user-select") || lower_diff.contains("selection") || lower_diff.contains("flicker") {
+        feature_hints.push("fix selection text highlighting");
+    }
+    if files_str.contains("BumpVersion") {
+        feature_hints.push("support version bump prefix");
+    }
+    if files_str.contains("README") {
+        feature_hints.push("update README documentation");
+    }
+
+    let action_desc = if !feature_hints.is_empty() {
+        if feature_hints.len() >= 3 {
+            format!("{}, {}, and {}", feature_hints[0], feature_hints[1], feature_hints[2])
+        } else if feature_hints.len() == 2 {
+            format!("{} and {}", feature_hints[0], feature_hints[1])
+        } else {
+            feature_hints[0].to_string()
+        }
+    } else if files.len() == 1 {
+        let f = &files[0];
+        let name = f.rsplit('/').next().unwrap_or(f);
+        if is_new_file {
+            format!("add {}", name)
+        } else if is_deleted_file {
+            format!("remove {}", name)
+        } else {
+            format!("update {}", name)
+        }
+    } else if files.len() <= 3 {
+        let names: Vec<&str> = files.iter().map(|f| f.rsplit('/').next().unwrap_or(f)).collect();
+        format!("update {}", names.join(", "))
+    } else {
+        format!("update {} components in {}", files.len(), clean_scope)
+    };
+
+    if style == "concise" {
+        let mut chars = action_desc.chars();
+        match chars.next() {
+            None => "Update repository".to_string(),
+            Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
+        }
+    } else {
+        format!("{}({}): {}", commit_type, clean_scope, action_desc)
     }
 }

@@ -22,7 +22,7 @@ import { SOURCE_PORT, TARGET_PORT } from "./ports";
 import { GRID, useWorkflowStore } from "@/store/workflowStore";
 import { useRuntimeStore } from "@/store/runtimeStore";
 import { useUIStore } from "@/store/uiStore";
-import { setCanvasProjection } from "@/lib/actions";
+import { setCanvasProjection, recordMouseScreen, addCommandBlock } from "@/lib/actions";
 import { Kbd } from "@/components/ui/Kbd";
 import { cn } from "@/lib/utils";
 import type { FuseEdge, FuseNode } from "@/types/workflow";
@@ -66,14 +66,39 @@ export function Canvas() {
 
   /** Did the wire being dragged land on a handle, or nowhere? */
   const reconnected = useRef(false);
+  const lastMousePos = useRef<{ x: number; y: number } | null>(null);
 
-  // The picker turns a screen point into a canvas one; only the canvas knows
-  // the transform, so it lends it out rather than exporting the hook.
   useEffect(() => {
-    setCanvasProjection((point) => {
-      const flow = screenToFlowPosition(point);
-      return { x: flow.x - 144, y: flow.y - 44 };
-    });
+    const onMouseMove = (e: MouseEvent) => {
+      const pos = { x: e.clientX, y: e.clientY };
+      lastMousePos.current = pos;
+      recordMouseScreen(pos);
+
+      // When dragging with Shift/Meta or selection is active, kill any browser text selection
+      if (e.shiftKey || e.metaKey || store.getState().userSelectionActive) {
+        window.getSelection()?.removeAllRanges();
+      }
+    };
+    window.addEventListener("mousemove", onMouseMove, { passive: true });
+    return () => window.removeEventListener("mousemove", onMouseMove);
+  }, [store]);
+
+  // The picker and actions turn screen points into canvas ones.
+  useEffect(() => {
+    setCanvasProjection(
+      (point) => {
+        const flow = screenToFlowPosition(point);
+        return { x: flow.x - 144, y: flow.y - 44 };
+      },
+      (screenPoint) => {
+        const pt = screenPoint ?? lastMousePos.current ?? {
+          x: window.innerWidth / 2,
+          y: window.innerHeight / 2,
+        };
+        const flow = screenToFlowPosition(pt);
+        return { x: flow.x - 144, y: flow.y - 44 };
+      },
+    );
   }, [screenToFlowPosition]);
 
   /**
@@ -253,6 +278,9 @@ export function Canvas() {
         deleteKeyCode={null}
         multiSelectionKeyCode="Meta"
         selectionKeyCode="Shift"
+        onSelectionStart={() => window.getSelection()?.removeAllRanges()}
+        onSelectionDrag={() => window.getSelection()?.removeAllRanges()}
+        onSelectionEnd={() => window.getSelection()?.removeAllRanges()}
         panActivationKeyCode="Space"
         zoomActivationKeyCode="Meta"
         // Trackpad-native: two fingers pan, pinch zooms — like Figma on a Mac.
@@ -260,6 +288,17 @@ export function Canvas() {
         zoomOnScroll={false}
         zoomOnPinch
         zoomOnDoubleClick={false}
+        onDoubleClick={(e) => {
+          if (
+            (e.target as HTMLElement).closest(".react-flow__node") ||
+            (e.target as HTMLElement).closest("button") ||
+            (e.target as HTMLElement).closest(".react-flow__panel")
+          ) {
+            return;
+          }
+          const flow = screenToFlowPosition({ x: e.clientX, y: e.clientY });
+          addCommandBlock({ x: flow.x - 144, y: flow.y - 44 });
+        }}
         proOptions={{ hideAttribution: true }}
       >
         <Background

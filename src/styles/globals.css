@@ -59,12 +59,46 @@
     -webkit-tap-highlight-color: transparent;
   }
 
-  input,
-  textarea,
-  [contenteditable="true"],
-  .selectable {
+  /* Only allow text selection in focused inputs or explicitly selectable panels */
+  input:focus,
+  textarea:focus,
+  [contenteditable="true"]:focus {
     -webkit-user-select: text;
     user-select: text;
+  }
+
+  .selectable,
+  .selectable * {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+  }
+
+  /* Prevent canvas text nodes from being highlighted during drag-select */
+  .react-flow,
+  .react-flow * {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+  }
+
+  .react-flow input:focus,
+  .react-flow textarea:focus,
+  .react-flow [contenteditable="true"]:focus {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+  }
+
+  .react-flow ::selection {
+    background: transparent !important;
+  }
+
+  .react-flow input:focus::selection,
+  .react-flow textarea:focus::selection {
+    background: color-mix(in oklab, var(--color-accent) 40%, transparent) !important;
+  }
+
+  .selectable ::selection,
+  .selectable *::selection {
+    background: color-mix(in oklab, var(--color-accent) 30%, transparent) !important;
   }
 
   :focus-visible {
@@ -446,9 +480,15 @@
 }
 
 .react-flow__selection {
-  background: color-mix(in oklab, var(--color-accent) 12%, transparent);
-  border: 1px solid color-mix(in oklab, var(--color-accent) 55%, transparent);
-  border-radius: 3px;
+  background: color-mix(in oklab, var(--color-accent) 8%, transparent);
+  border: 1px dashed color-mix(in oklab, var(--color-accent) 60%, transparent);
+  border-radius: 4px;
+}
+
+/* Hide the multi-selection bounding box overlay that tints the cards */
+.react-flow__nodesselection-rect,
+.react-flow__nodesselection {
+  display: none !important;
 }
 
 .react-flow__minimap {

@@ -66,6 +66,9 @@ pub enum NodePayload {
     /// Parses a semantic version and increments it.
     #[serde(rename = "bump_version")]
     BumpVersion(BumpVersionData),
+    /// Uses on-device intelligence to summarize git diff into a commit message.
+    #[serde(rename = "ai_commit")]
+    AiCommit(AiCommitData),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -405,6 +408,32 @@ impl Default for BumpVersionData {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AiCommitData {
+    pub label: String,
+    pub frame_id: Option<String>,
+    pub variable: String,
+    pub scope: String,
+    pub style: String,
+    pub working_dir: Option<String>,
+    pub continue_on_error: bool,
+}
+
+impl Default for AiCommitData {
+    fn default() -> Self {
+        Self {
+            label: "AI Commit Summary".into(),
+            frame_id: None,
+            variable: "commit_message".into(),
+            scope: "staged".into(),
+            style: "conventional".into(),
+            working_dir: None,
+            continue_on_error: false,
+        }
+    }
+}
+
 impl WorkflowNode {
     pub fn command(&self) -> Option<&CommandData> {
         match &self.payload {
@@ -443,6 +472,7 @@ impl WorkflowNode {
             NodePayload::WriteFile(w) => w.frame_id.as_deref(),
             NodePayload::SetVariable(s) => s.frame_id.as_deref(),
             NodePayload::BumpVersion(b) => b.frame_id.as_deref(),
+            NodePayload::AiCommit(a) => a.frame_id.as_deref(),
             NodePayload::Frame(_) => None,
         }
     }
@@ -458,6 +488,7 @@ impl WorkflowNode {
             NodePayload::Http(h) => h.working_dir.as_deref(),
             NodePayload::ReadFile(r) => r.working_dir.as_deref(),
             NodePayload::WriteFile(w) => w.working_dir.as_deref(),
+            NodePayload::AiCommit(a) => a.working_dir.as_deref(),
             _ => None,
         }
     }
@@ -471,6 +502,7 @@ impl WorkflowNode {
             NodePayload::Capture(c) => c.continue_on_error,
             NodePayload::ReadFile(r) => r.continue_on_error,
             NodePayload::WriteFile(w) => w.continue_on_error,
+            NodePayload::AiCommit(a) => a.continue_on_error,
             _ => false,
         }
     }
@@ -509,6 +541,7 @@ impl WorkflowNode {
             NodePayload::WriteFile(w) => named(&w.label, "Write File"),
             NodePayload::SetVariable(s) => named(&s.label, "Set Variable"),
             NodePayload::BumpVersion(b) => named(&b.label, "Bump Version"),
+            NodePayload::AiCommit(a) => named(&a.label, "AI Commit Summary"),
         }
     }
 
@@ -546,6 +579,7 @@ impl WorkflowNode {
             NodePayload::WriteFile(w) => format!("Write {}", w.path),
             NodePayload::SetVariable(s) => format!("Set {} = {}", s.variable, s.value),
             NodePayload::BumpVersion(b) => format!("Bump {} ({})", b.variable_in, b.part),
+            NodePayload::AiCommit(a) => format!("Summarize diff -> {}", a.variable),
             NodePayload::Frame(_) => String::new(),
         }
     }

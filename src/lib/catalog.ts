@@ -25,6 +25,7 @@ import {
   FileDown,
   Variable,
   ArrowUpFromLine,
+  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import type { NodeKind, BlockData } from "@/types/workflow";
@@ -249,6 +250,21 @@ export const CATALOG: CatalogEntry[] = [
       what: "Parses a semantic version from an input variable and increments the specified part (major, minor, or patch).",
       when: "Use this when you want to automatically calculate the next version tag for a git release.",
       example: "Bump minor of {{current_version}} into {{next_version}}",
+    },
+  },
+  {
+    kind: "ai_commit",
+    label: "AI Commit Summary",
+    summary: "Summarize diff with AI",
+    detail: "Uses on-device intelligence to generate a commit message from git diff",
+    icon: Sparkles,
+    accent: "success",
+    group: "Values",
+    keywords: ["ai", "commit", "apple", "intelligence", "diff", "summary", "message", "smart", "git", "values"],
+    documentation: {
+      what: "Analyzes your uncommitted git changes using Apple on-device intelligence and produces a clean commit message.",
+      when: "Use this right before a Git Commit block to automatically generate accurate commit messages.",
+      example: "Summarize git diff -> {{commit_message}}",
     },
   },
   {

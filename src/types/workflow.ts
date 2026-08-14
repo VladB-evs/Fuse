@@ -34,7 +34,8 @@ export type NodeKind =
   | "read_file"
   | "write_file"
   | "set_variable"
-  | "bump_version";
+  | "bump_version"
+  | "ai_commit";
 
 /** Every kind except a frame — the things that appear in a run. */
 export type BlockKind = Exclude<NodeKind, "frame">;
@@ -162,6 +163,15 @@ export type BumpVersionData = BlockCommon & {
   part: string;
 };
 
+/** Uses Apple on-device intelligence to summarize git diff into a commit message. */
+export type AiCommitData = BlockCommon & {
+  variable: string;
+  scope: "staged" | "all";
+  style: "conventional" | "concise";
+  workingDir: string | null;
+  continueOnError: boolean;
+};
+
 export type BlockData =
   | CommandData
   | ApprovalData
@@ -176,7 +186,8 @@ export type BlockData =
   | ReadFileData
   | WriteFileData
   | SetVariableData
-  | BumpVersionData;
+  | BumpVersionData
+  | AiCommitData;
 
 export type FrameData = {
   label: string;
@@ -205,7 +216,8 @@ export type PersistedNode =
   | { id: string; position: XY; type: "read_file"; data: ReadFileData }
   | { id: string; position: XY; type: "write_file"; data: WriteFileData }
   | { id: string; position: XY; type: "set_variable"; data: SetVariableData }
-  | { id: string; position: XY; type: "bump_version"; data: BumpVersionData };
+  | { id: string; position: XY; type: "bump_version"; data: BumpVersionData }
+  | { id: string; position: XY; type: "ai_commit"; data: AiCommitData };
 
 export type PersistedEdge = {
   id: string;
@@ -274,6 +286,7 @@ export type ReadFileNodeType = RFNode<ReadFileData, "read_file">;
 export type WriteFileNodeType = RFNode<WriteFileData, "write_file">;
 export type SetVariableNodeType = RFNode<SetVariableData, "set_variable">;
 export type BumpVersionNodeType = RFNode<BumpVersionData, "bump_version">;
+export type AiCommitNodeType = RFNode<AiCommitData, "ai_commit">;
 
 /** Anything that takes part in a run. */
 export type BlockNodeType =
@@ -290,7 +303,8 @@ export type BlockNodeType =
   | ReadFileNodeType
   | WriteFileNodeType
   | SetVariableNodeType
-  | BumpVersionNodeType;
+  | BumpVersionNodeType
+  | AiCommitNodeType;
 
 export type FuseNode = BlockNodeType | FrameNodeType;
 export type FuseEdge = RFEdge;

@@ -14,6 +14,7 @@ import { ReadFileNode } from "./ReadFileNode";
 import { WriteFileNode } from "./WriteFileNode";
 import { SetVariableNode } from "./SetVariableNode";
 import { BumpVersionNode } from "./BumpVersionNode";
+import { AiCommitNode } from "./AiCommitNode";
 
 /**
  * Node registry.
@@ -38,4 +39,5 @@ export const nodeTypes: NodeTypes = {
   write_file: WriteFileNode,
   set_variable: SetVariableNode,
   bump_version: BumpVersionNode,
+  ai_commit: AiCommitNode,
 };

@@ -141,17 +141,22 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
       <div
         className={cn(
           "fuse-card relative rounded-node border bg-base",
-          "transition-[border-color,box-shadow,transform] duration-150 ease-out",
+          "transition-[border-color,box-shadow] duration-150 ease-out",
           status === "idle" && "border-line",
           status === "pending" && "border-line",
           status === "skipped" && "border-line opacity-55",
-          isRunning && "running-sheen border-accent/70",
+          isRunning && "border-accent/70",
           status === "success" && "border-success/35",
           status === "failed" && "border-danger/55",
           status === "cancelled" && "border-warn/45",
           selected && "border-accent shadow-[0_0_0_1px_var(--color-accent)]",
         )}
       >
+        {/* Clipped shimmer effect when running — isolated so it doesn't bleed onto the canvas */}
+        {isRunning && (
+          <div className="running-sheen pointer-events-none absolute inset-0 overflow-hidden rounded-node" />
+        )}
+
         {/* Header — double-click the name to rename. */}
         <div className="flex h-[30px] items-center gap-1.5 border-b border-line/70 px-2.5 rounded-t-[calc(var(--radius-node)-1px)]">
           <TerminalSquare size={12} className="shrink-0 text-fg-subtle" strokeWidth={1.75} />

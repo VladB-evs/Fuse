@@ -473,6 +473,16 @@ async fn automated_step(
             .await
         }
 
+        NodePayload::AiCommit(data) => {
+            steps::run_ai_commit(
+                data,
+                control,
+                working_dir,
+                &reporter,
+            )
+            .await
+        }
+
 
         _ => steps::StepOutcome {
             status: NodeStatus::Skipped,

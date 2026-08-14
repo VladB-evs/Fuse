@@ -141,7 +141,8 @@ export async function createNewWorkflow(saveImmediately: boolean = true): Promis
 // --- Editing --------------------------------------------------------------
 
 export function addCommandBlock(position?: { x: number; y: number }): string {
-  const id = useWorkflowStore.getState().addBlockNode("command", position ? { position } : undefined);
+  const pos = position ?? getCanvasSpawnPoint();
+  const id = useWorkflowStore.getState().addBlockNode("command", { position: pos });
   useUIStore.getState().requestFocus(id);
   return id;
 }
@@ -156,6 +157,7 @@ const BLOCK_HINT: Partial<Record<NodeKind, string>> = {
   wait: "Give it a command to poll, or just a delay",
   http: "Values from earlier steps work in the URL, headers and body",
   script: "Pick an interpreter and write the script",
+  ai_commit: "Summarizes changes into a clean commit message before git add .",
 };
 
 /**
@@ -171,8 +173,10 @@ export function addNodeOfKind(
 ): string {
   const workflow = useWorkflowStore.getState();
 
+  const spawnPos = position ?? (connectFrom ? undefined : getCanvasSpawnPoint());
+
   if (kind === "frame") {
-    const id = workflow.addFrameNode(position ? { position } : undefined);
+    const id = workflow.addFrameNode(spawnPos ? { position: spawnPos } : undefined);
     useUIStore.getState().notify("Frame added — set its folder to run it");
     return id;
   }
@@ -182,7 +186,12 @@ export function addNodeOfKind(
   const sourceNode = connectFrom ? workflow.nodes.find(n => n.id === connectFrom.nodeId) : undefined;
   const sourceFrameId = sourceNode && "frameId" in sourceNode.data ? sourceNode.data.frameId : undefined;
   
-  const id = workflow.addBlockNode(kind, position ? { position, frameId: sourceFrameId, prefill } : (sourceFrameId !== undefined ? { frameId: sourceFrameId, prefill } : { prefill }));
+  const id = workflow.addBlockNode(
+    kind,
+    spawnPos
+      ? { position: spawnPos, frameId: sourceFrameId, prefill }
+      : (sourceFrameId !== undefined ? { frameId: sourceFrameId, prefill } : { prefill })
+  );
 
   if (connectFrom) {
     useWorkflowStore.getState().onConnect(
@@ -212,8 +221,9 @@ export function addNodeOfKind(
 
 /** Open the block picker somewhere sensible: the pointer, or the canvas centre. */
 export function openNodePicker(at?: { x: number; y: number }) {
-  const point = at ?? { x: window.innerWidth / 2 - 160, y: window.innerHeight / 3 };
-  useUIStore.getState().openPicker({ at: point, position: canvasPoint(point) });
+  const mouse = getLastMouseScreen();
+  const point = at ?? (mouse ?? { x: window.innerWidth / 2 - 160, y: window.innerHeight / 3 });
+  useUIStore.getState().openPicker({ at: point, position: canvasSpawnPoint(point) });
 }
 
 /**
@@ -223,9 +233,27 @@ export function openNodePicker(at?: { x: number; y: number }) {
  * blocks where the store would have put them anyway.
  */
 let canvasPoint: (point: { x: number; y: number }) => { x: number; y: number } = (point) => point;
+let canvasSpawnPoint: (screenPoint?: { x: number; y: number }) => { x: number; y: number } = () => ({ x: 240, y: 160 });
+let lastMouseScreen: { x: number; y: number } | null = null;
 
-export function setCanvasProjection(project: typeof canvasPoint) {
+export function recordMouseScreen(point: { x: number; y: number } | null) {
+  lastMouseScreen = point;
+}
+
+export function getLastMouseScreen(): { x: number; y: number } | null {
+  return lastMouseScreen;
+}
+
+export function setCanvasProjection(
+  project: typeof canvasPoint,
+  getSpawn: typeof canvasSpawnPoint = () => project({ x: window.innerWidth / 2, y: window.innerHeight / 2 }),
+) {
   canvasPoint = project;
+  canvasSpawnPoint = getSpawn;
+}
+
+export function getCanvasSpawnPoint(screenPoint?: { x: number; y: number }): { x: number; y: number } {
+  return canvasSpawnPoint(screenPoint);
 }
 
 // --- Wires ----------------------------------------------------------------
@@ -250,7 +278,8 @@ export function disconnectSelection(): void {
 }
 
 export function addFrameBlock(position?: { x: number; y: number }): string {
-  return useWorkflowStore.getState().addFrameNode(position ? { position } : undefined);
+  const pos = position ?? getCanvasSpawnPoint();
+  return useWorkflowStore.getState().addFrameNode({ position: pos });
 }
 
 /** Take a block out of the frame it sits in. */
@@ -352,7 +381,7 @@ async function withRunInputs(
   const filledLater = new Set(
     doc.nodes
       .map((n) => {
-        if (n.type === "input" || n.type === "capture" || n.type === "read_file" || n.type === "set_variable") {
+        if (n.type === "input" || n.type === "capture" || n.type === "read_file" || n.type === "set_variable" || n.type === "ai_commit") {
           return (n.data as { variable: string }).variable.trim();
         }
         if (n.type === "bump_version") {
