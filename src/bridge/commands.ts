@@ -1,0 +1,70 @@
+/**
+ * The only module that talks to Rust.
+ *
+ * Everything above this file works with plain typed values and has no idea
+ * Tauri exists, which keeps the UI testable and the boundary obvious.
+ */
+
+import { invoke } from "@tauri-apps/api/core";
+import type {
+  PromptReply,
+  RepositoryActivity,
+  WorkflowDocument,
+  WorkflowSummary,
+} from "@/types/workflow";
+
+export function listWorkflows(): Promise<WorkflowSummary[]> {
+  return invoke("list_workflows");
+}
+
+export function loadWorkflow(id: string): Promise<WorkflowDocument> {
+  return invoke("load_workflow", { id });
+}
+
+export function saveWorkflow(workflow: WorkflowDocument): Promise<WorkflowDocument> {
+  return invoke("save_workflow", { workflow });
+}
+
+export function deleteWorkflow(id: string): Promise<void> {
+  return invoke("delete_workflow", { id });
+}
+
+/** Starts a run and resolves with its id; progress arrives as engine events. */
+export function runWorkflow(workflow: WorkflowDocument): Promise<string> {
+  return invoke("run_workflow", { workflow });
+}
+
+export function runNode(workflow: WorkflowDocument, nodeId: string): Promise<string> {
+  return invoke("run_node", { workflow, nodeId });
+}
+
+export function stopRun(): Promise<void> {
+  return invoke("stop_run");
+}
+
+/** Answer the question a paused run is waiting on, releasing the engine. */
+export function resolvePrompt(
+  runId: string,
+  nodeId: string,
+  reply: PromptReply,
+): Promise<void> {
+  return invoke("resolve_prompt", { runId, nodeId, reply });
+}
+
+export function isRunning(): Promise<boolean> {
+  return invoke("is_running");
+}
+
+export function homeDirectory(): Promise<string> {
+  return invoke("home_directory");
+}
+
+/** Native folder picker. Resolves `null` when the user cancels. */
+export function pickDirectory(): Promise<string | null> {
+  return invoke("pick_directory");
+}
+
+/** A local Git activity summary for the workflow's attached folder. */
+export function repositoryActivity(directory: string): Promise<RepositoryActivity> {
+  return invoke("repository_activity", { directory });
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities for the main Fuse window",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:event:default", "core:window:default", "dialog:allow-open", "updater:default", "process:default"]
+}

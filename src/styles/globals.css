@@ -1,0 +1,569 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/base.css";
+
+/* ---------------------------------------------------------------------------
+   Fuse design tokens. Dark-first, low-chroma surfaces, one accent.
+   Closer to Linear/Raycast than a developer dashboard: thin borders, small
+   radii, almost no shadow, colour reserved for state.
+--------------------------------------------------------------------------- */
+@theme {
+  --color-canvas: #08080a;
+  --color-base: #0d0d0f;
+  --color-elevated: #141417;
+  --color-hover: #1b1b1f;
+  --color-line: #232327;
+  --color-line-strong: #33333a;
+
+  --color-fg: #ededef;
+  --color-fg-muted: #8b8b95;
+  --color-fg-subtle: #5c5c66;
+
+  --color-accent: #5b6cff;
+  --color-accent-soft: #2a2f5c;
+  --color-success: #3ecf8e;
+  --color-danger: #f2555f;
+  --color-warn: #f5a524;
+
+  --font-sans: ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  --radius-node: 11px;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-canvas);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* This is a desktop app, not a web page — kill browser-ish affordances. */
+  * {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  input,
+  textarea,
+  [contenteditable="true"],
+  .selectable {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  :focus-visible {
+    outline: none;
+  }
+
+  ::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2c2c33;
+    border-radius: 99px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3d3d46;
+    background-clip: content-box;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   React Flow overrides — we draw our own nodes, so strip its chrome.
+--------------------------------------------------------------------------- */
+.react-flow__node {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  cursor: default;
+}
+
+/* ---------------------------------------------------------------------------
+   Frames.
+
+   A frame is a backdrop: it takes the pointer so it can be dragged and
+   selected, and the blocks it holds sit on a layer above it, so a click that
+   lands on a block reaches the block. Nothing here may raise a frame above
+   its own contents.
+--------------------------------------------------------------------------- */
+.react-flow__node-frame {
+  cursor: default !important;
+  pointer-events: none !important;
+}
+
+.react-flow__node-frame.dragging {
+  /* Removed global cursor: grabbing; the header tab is now the drag handle. */
+}
+
+/* ---------------------------------------------------------------------------
+   Connection bands.
+
+   Each side of a block is one long, invisible grab target rather than a dot:
+   a wire can be pulled from anywhere along an edge. The visible affordance is
+   a short bar centred on the side, which stretches to the full side on hover
+   to say "grab me anywhere here".
+--------------------------------------------------------------------------- */
+.fuse-port {
+  position: absolute;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  opacity: 1;
+  transform: none;
+  cursor: crosshair;
+}
+
+.fuse-port::after {
+  content: none;
+}
+
+.fuse-port-top,
+.fuse-port-bottom {
+  left: 0;
+  right: 0;
+  height: 15px;
+}
+.fuse-port-top {
+  top: -9px;
+  bottom: auto;
+}
+.fuse-port-bottom {
+  bottom: -9px;
+  top: auto;
+}
+
+.fuse-port-left,
+.fuse-port-right {
+  top: 14px;
+  bottom: 14px;
+  width: 15px;
+  height: auto;
+}
+.fuse-port-left {
+  left: -9px;
+  right: auto;
+}
+.fuse-port-right {
+  right: -9px;
+  left: auto;
+}
+
+.fuse-port::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  translate: -50% -50%;
+  border-radius: 99px;
+  background: var(--color-line-strong);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 140ms ease,
+    width 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    height 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    background 140ms ease;
+}
+
+.fuse-port-top::before,
+.fuse-port-bottom::before {
+  width: 26px;
+  height: 3px;
+}
+.fuse-port-left::before,
+.fuse-port-right::before {
+  width: 3px;
+  height: 26px;
+}
+
+.react-flow__node:hover .fuse-port::before,
+.is-connecting .fuse-port::before {
+  opacity: 0.8;
+}
+
+.fuse-port:hover::before {
+  opacity: 1;
+  background: var(--color-accent);
+  box-shadow: 0 0 10px color-mix(in oklab, var(--color-accent) 60%, transparent);
+}
+.fuse-port-top:hover::before,
+.fuse-port-bottom:hover::before {
+  width: calc(100% - 18px);
+}
+.fuse-port-left:hover::before,
+.fuse-port-right:hover::before {
+  height: calc(100% - 8px);
+}
+
+/* While a wire is in flight the whole block is a drop target, so it should
+   light up as a whole — and text fields must not steal the pointer. */
+.is-connecting .react-flow__node {
+  cursor: crosshair;
+}
+
+.is-connecting .react-flow__node textarea,
+.is-connecting .react-flow__node input,
+.is-connecting .react-flow__node button {
+  pointer-events: none;
+}
+
+.is-connecting .react-flow__node:hover .fuse-card {
+  border-color: color-mix(in oklab, var(--color-accent) 65%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--color-accent) 45%, transparent),
+    0 0 22px color-mix(in oklab, var(--color-accent) 18%, transparent);
+}
+
+/* ---------------------------------------------------------------------------
+   Wires
+--------------------------------------------------------------------------- */
+.react-flow__edge-path {
+  stroke: #3a3a44;
+  stroke-width: 1.75;
+  transition:
+    stroke 160ms ease,
+    stroke-width 160ms ease;
+}
+
+.react-flow__edge:hover .react-flow__edge-path,
+.fuse-edge.is-selected .react-flow__edge-path {
+  stroke: var(--color-fg-subtle);
+}
+
+/* The highlight that travels along a wire. `pathLength="1"` on the path makes
+   these dash values length-independent: 20% lit, 80% dark. */
+.fuse-edge-pulse {
+  fill: none;
+  stroke: color-mix(in oklab, var(--color-accent) 80%, white);
+  stroke-width: 2.25;
+  stroke-linecap: round;
+  stroke-dasharray: 0.2 0.8;
+  opacity: 0.65;
+  pointer-events: none;
+  animation: fuse-travel 2.5s linear infinite;
+  filter: drop-shadow(0 0 3px color-mix(in oklab, var(--color-accent) 40%, transparent));
+  transition:
+    stroke 160ms ease,
+    opacity 160ms ease;
+}
+
+.fuse-edge-cap {
+  fill: #4a4a56;
+  pointer-events: none;
+  transition: fill 160ms ease;
+}
+.fuse-edge-cap--in {
+  fill: var(--color-accent);
+}
+
+.fuse-edge:hover .fuse-edge-pulse,
+.fuse-edge.is-selected .fuse-edge-pulse {
+  opacity: 1;
+  stroke-width: 2.75;
+}
+
+.fuse-edge--running .react-flow__edge-path {
+  stroke: color-mix(in oklab, var(--color-accent) 50%, transparent);
+  stroke-width: 2;
+}
+.fuse-edge--running .fuse-edge-pulse {
+  stroke: #ffffff;
+  stroke-width: 3.5;
+  stroke-dasharray: 0.5 0.5;
+  opacity: 1;
+  animation: fuse-travel 0.65s linear infinite;
+  filter: drop-shadow(0 0 7px var(--color-accent)) drop-shadow(0 0 16px var(--color-accent));
+}
+.fuse-edge--running .fuse-edge-cap {
+  fill: var(--color-accent);
+}
+
+.fuse-edge--waiting .react-flow__edge-path {
+  stroke: color-mix(in oklab, var(--color-warn) 55%, transparent);
+  stroke-width: 2;
+}
+.fuse-edge--waiting .fuse-edge-pulse {
+  stroke: var(--color-warn);
+  stroke-width: 2.5;
+  opacity: 1;
+  /* Slower than a running wire: the run is alive, but nothing is moving. */
+  animation: fuse-travel 3s linear infinite;
+  filter: drop-shadow(0 0 6px color-mix(in oklab, var(--color-warn) 55%, transparent));
+}
+.fuse-edge--waiting .fuse-edge-cap,
+.fuse-edge--waiting .fuse-edge-cap--in {
+  fill: var(--color-warn);
+}
+
+.fuse-edge--done .react-flow__edge-path {
+  stroke: color-mix(in oklab, var(--color-success) 32%, #3a3a44);
+}
+.fuse-edge--done .fuse-edge-pulse {
+  stroke: var(--color-success);
+  stroke-width: 2;
+  opacity: 0.6;
+  animation: fuse-travel 3.2s linear infinite;
+  filter: drop-shadow(0 0 3px color-mix(in oklab, var(--color-success) 50%, transparent));
+}
+.fuse-edge--done .fuse-edge-cap,
+.fuse-edge--done .fuse-edge-cap--in {
+  fill: color-mix(in oklab, var(--color-success) 65%, #3a3a44);
+}
+
+.fuse-edge--stopped .fuse-edge-pulse {
+  animation: none;
+  opacity: 0;
+}
+.fuse-edge--stopped .react-flow__edge-path {
+  stroke: color-mix(in oklab, var(--color-danger) 28%, var(--color-line-strong));
+  stroke-dasharray: 2 4;
+}
+
+.fuse-edge--skipped {
+  opacity: 0.35;
+}
+.fuse-edge--skipped .fuse-edge-pulse {
+  animation: none;
+  opacity: 0;
+}
+
+/* A wire leaving a condition's "no" port. Dashed, so the two branches out of
+   one block can be told apart without reading the labels. */
+.fuse-edge--no .react-flow__edge-path {
+  stroke-dasharray: 5 4;
+  stroke: color-mix(in oklab, var(--color-warn) 40%, #3a3a44);
+}
+.fuse-edge--no .fuse-edge-pulse {
+  stroke: color-mix(in oklab, var(--color-warn) 70%, white);
+}
+
+/* The cut button that appears on a hovered or selected wire. */
+.fuse-edge-cut {
+  position: absolute;
+  pointer-events: all;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 99px;
+  border: 1px solid var(--color-line-strong);
+  background: var(--color-base);
+  color: var(--color-fg-subtle);
+  animation: fuse-in 120ms ease-out;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background 120ms ease,
+    transform 120ms ease;
+}
+
+/* No transform here: the inline style carries the wire's midpoint, and
+   overriding it would move the button off the wire. */
+.fuse-edge-cut:hover {
+  color: var(--color-danger);
+  border-color: color-mix(in oklab, var(--color-danger) 65%, transparent);
+  background: color-mix(in oklab, var(--color-danger) 14%, var(--color-base));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-danger) 14%, transparent);
+}
+
+/* The two ways out of a condition block, coloured to match their labels. */
+.fuse-port--true::before {
+  background: color-mix(in oklab, var(--color-success) 70%, var(--color-line-strong));
+}
+.fuse-port--false::before {
+  background: color-mix(in oklab, var(--color-warn) 70%, var(--color-line-strong));
+}
+
+/* ---------------------------------------------------------------------------
+   The wire being dragged
+--------------------------------------------------------------------------- */
+.fuse-link-path {
+  fill: none;
+  stroke: var(--color-accent);
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-dasharray: 0.06 0.06;
+  animation: fuse-travel 1.4s linear infinite;
+}
+
+.fuse-link-glow {
+  fill: none;
+  stroke: color-mix(in oklab, var(--color-accent) 30%, transparent);
+  stroke-width: 6;
+  filter: blur(3px);
+}
+
+.fuse-link-origin {
+  fill: var(--color-accent);
+}
+
+.fuse-link-tip {
+  fill: var(--color-base);
+  stroke: var(--color-accent);
+  stroke-width: 1.75;
+}
+
+.fuse-link.is-invalid .fuse-link-path,
+.fuse-link.is-invalid .fuse-link-tip {
+  stroke: var(--color-danger);
+}
+.fuse-link.is-invalid .fuse-link-origin {
+  fill: var(--color-danger);
+}
+.fuse-link.is-invalid .fuse-link-glow {
+  stroke: color-mix(in oklab, var(--color-danger) 30%, transparent);
+}
+
+.react-flow__attribution {
+  display: none;
+}
+
+.react-flow__selection {
+  background: color-mix(in oklab, var(--color-accent) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-accent) 55%, transparent);
+  border-radius: 3px;
+}
+
+.react-flow__minimap {
+  background: color-mix(in oklab, var(--color-base) 82%, transparent);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  overflow: hidden;
+  backdrop-filter: blur(12px);
+}
+
+.react-flow__node.dragging {
+  cursor: grabbing;
+}
+
+/* ---------------------------------------------------------------------------
+   Motion
+--------------------------------------------------------------------------- */
+/* Paths using this carry `pathLength="1"`, so one turn of the dash pattern is
+   exactly one traversal of the wire regardless of how long it is. */
+@keyframes fuse-travel {
+  to {
+    stroke-dashoffset: -1;
+  }
+}
+
+@keyframes fuse-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
+.status-pulse {
+  animation: fuse-pulse 1.15s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes fuse-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-in-soft {
+  animation: fuse-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fuse-cell-in {
+  from { opacity: 0; scale: 0.55; }
+  to { scale: 1; }
+}
+
+.repo-activity-cell {
+  animation: fuse-cell-in 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transition: transform 130ms ease, filter 130ms ease;
+}
+
+.repo-activity-cell:hover {
+  filter: brightness(1.35);
+  transform: scale(1.55);
+}
+
+.repo-history-item {
+  animation: fuse-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes fuse-sheen {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(200%);
+  }
+}
+
+/* A step that has stopped the run to ask something. It is the only thing the
+   user can act on, so it breathes rather than sits still. */
+@keyframes fuse-waiting {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--color-warn) 55%, transparent),
+      0 0 18px -2px color-mix(in oklab, var(--color-warn) 30%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--color-warn) 85%, transparent),
+      0 0 26px -2px color-mix(in oklab, var(--color-warn) 55%, transparent);
+  }
+}
+
+.waiting-glow {
+  animation: fuse-waiting 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.running-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-accent) 9%, transparent),
+    transparent
+  );
+  animation: fuse-sheen 1.6s ease-in-out infinite;
+}
