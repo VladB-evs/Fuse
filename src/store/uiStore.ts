@@ -47,6 +47,7 @@ export type UIState = {
   picker: PickerRequest | null;
   leftSidebarOpen: boolean;
   rightSidebarOpen: boolean;
+  availableUpdate: string | null;
 
   inspect: (nodeId: string | null, options?: { open?: boolean; manual?: boolean }) => void;
   setFollowRun: (follow: boolean) => void;
@@ -59,6 +60,7 @@ export type UIState = {
   setSettingsOpen: (open: boolean) => void;
   setRenameOpen: (open: boolean) => void;
   setDropFrame: (frameId: string | null) => void;
+  setAvailableUpdate: (version: string | null) => void;
   /** Resolves with the entered values, or `null` if the run was called off. */
   askForInputs: (fields: string[], blocks: InputPreviewBlock[]) => Promise<InputValues | null>;
   answerInputs: (values: InputValues | null) => void;
@@ -86,6 +88,7 @@ export const useUIStore = create<UIState>()((set) => ({
   picker: null,
   leftSidebarOpen: true,
   rightSidebarOpen: false,
+  availableUpdate: null,
 
   inspect: (nodeId, options) =>
     set((state) => ({
@@ -106,6 +109,7 @@ export const useUIStore = create<UIState>()((set) => ({
   setDocsOpen: (open) => set({ docsOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setRenameOpen: (open) => set({ renameOpen: open }),
+  setAvailableUpdate: (version) => set({ availableUpdate: version }),
 
   setDropFrame: (frameId) =>
     set((state) => (state.dropFrameId === frameId ? state : { dropFrameId: frameId })),

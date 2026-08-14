@@ -16,6 +16,7 @@ import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { subscribeToEngine } from "@/bridge/events";
 import { homeDirectory, listWorkflows } from "@/bridge/commands";
 import { autosaveWorkflow, lastOpenedId, openWorkflowById } from "@/lib/actions";
+import { check } from "@tauri-apps/plugin-updater";
 import { useRuntimeStore } from "@/store/runtimeStore";
 import { useUIStore } from "@/store/uiStore";
 import { useWorkflowStore } from "@/store/workflowStore";
@@ -102,6 +103,24 @@ function AppShell() {
         // First launch with no store yet — start on a blank canvas.
       }
     })();
+  }, []);
+
+  // Silently check for updates in the background on startup
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const update = await check();
+          if (update?.available) {
+            useUIStore.getState().setAvailableUpdate(update.version);
+            useUIStore.getState().notify(`🚀 Fuse v${update.version} is available!`);
+          }
+        } catch {
+          // Offline or update endpoint not yet reachable
+        }
+      })();
+    }, 2500);
+    return () => clearTimeout(timer);
   }, []);
 
   // Debounced autosave. ⌘S still works and confirms; this is the safety net.

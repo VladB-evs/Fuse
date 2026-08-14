@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Play, Plus, Square, Settings, FolderOpen, FolderInput } from "lucide-react";
+import { BookOpen, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Play, Plus, Square, Settings, FolderOpen, FolderInput, Sparkles } from "lucide-react";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useRuntimeStore } from "@/store/runtimeStore";
 import { useUIStore } from "@/store/uiStore";
@@ -46,6 +46,7 @@ export function Toolbar() {
   const lastRun = useRuntimeStore((s) => s.lastRun);
 
   const toast = useUIStore((s) => s.toast);
+  const availableUpdate = useUIStore((s) => s.availableUpdate);
   const setPaletteOpen = useUIStore((s) => s.setPaletteOpen);
   const setDocsOpen = useUIStore((s) => s.setDocsOpen);
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
@@ -195,6 +196,18 @@ export function Toolbar() {
       >
         <FolderInput size={15} />
       </button>
+
+      {availableUpdate && (
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 text-[11px] font-medium text-emerald-400 hover:bg-emerald-500/25 transition shadow-sm"
+          title={`Update to v${availableUpdate} available — Click to install`}
+        >
+          <Sparkles size={12} className="text-emerald-400 animate-pulse" />
+          <span>Update v{availableUpdate}</span>
+        </button>
+      )}
 
       <button
         type="button"

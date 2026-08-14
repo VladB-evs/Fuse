@@ -30,6 +30,8 @@
 
 <img src="assets/preview.png" alt="Fuse Canvas Interface" width="100%" />
 
+<p><em>(the actual image of the worlflow used for this app)</em></p>
+
 </div>
 
 ---
@@ -54,7 +56,18 @@
 - [Node.js](https://nodejs.org/) (v18+)
 - [Rust](https://www.rust-lang.org/tools/install) (latest stable)
 
-### Installation & Development
+### Download & Installation
+
+Download the latest `.dmg` or `.app` release from [GitHub Releases](https://github.com/VladB-evs/Fuse/releases/latest).
+
+> [!TIP]
+> **macOS Gatekeeper Note**: If macOS displays *"App is damaged and can't be opened"* on an unsigned release, run this single command in Terminal to clear the download quarantine flag:
+> ```bash
+> xattr -cr /Applications/Fuse.app
+> ```
+> Or **Right-click / Control-click** `Fuse.app` in Finder and select **Open**.
+
+### Development Setup
 
 ```bash
 # Clone the repository
@@ -68,7 +81,7 @@ npm install
 npm run tauri dev
 ```
 
-### Building the Distributable App
+### Building from Source
 
 ```bash
 # Package a production macOS .dmg / .app bundle
