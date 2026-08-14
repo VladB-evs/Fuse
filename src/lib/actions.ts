@@ -350,8 +350,15 @@ async function withRunInputs(
   // for now — deciding it up front would defeat the point of those steps.
   const filledLater = new Set(
     doc.nodes
-      .filter((n) => n.type === "input" || n.type === "capture")
-      .map((n) => (n.data as { variable: string }).variable.trim())
+      .map((n) => {
+        if (n.type === "input" || n.type === "capture" || n.type === "read_file" || n.type === "set_variable") {
+          return (n.data as { variable: string }).variable.trim();
+        }
+        if (n.type === "bump_version") {
+          return (n.data as { variableOut: string }).variableOut.trim();
+        }
+        return "";
+      })
       .filter(Boolean),
   );
 
@@ -400,6 +407,14 @@ function placeholderFields(node: PersistedNode): string[] {
       return [node.data.until];
     case "http":
       return [node.data.url, node.data.body, ...Object.values(node.data.headers)];
+    case "read_file":
+      return [node.data.path];
+    case "write_file":
+      return [node.data.path, node.data.content];
+    case "set_variable":
+      return [node.data.value];
+    case "bump_version":
+      return [node.data.variableIn];
     default:
       return [];
   }

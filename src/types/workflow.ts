@@ -204,7 +204,8 @@ export type PersistedNode =
   | { id: string; position: XY; type: "note"; data: NoteData }
   | { id: string; position: XY; type: "read_file"; data: ReadFileData }
   | { id: string; position: XY; type: "write_file"; data: WriteFileData }
-  | { id: string; position: XY; type: "set_variable"; data: SetVariableData };
+  | { id: string; position: XY; type: "set_variable"; data: SetVariableData }
+  | { id: string; position: XY; type: "bump_version"; data: BumpVersionData };
 
 export type PersistedEdge = {
   id: string;

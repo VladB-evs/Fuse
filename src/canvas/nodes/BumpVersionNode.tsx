@@ -12,7 +12,7 @@ function BumpVersionNodeImpl({ id, data, selected }: NodeProps<BumpVersionNodeTy
 
   const handleCopy = () => {
     const varName = data.variableOut || "next_version";
-    navigator.clipboard.writeText(`{{env.${varName}}}`);
+    navigator.clipboard.writeText(`{{${varName}}}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
