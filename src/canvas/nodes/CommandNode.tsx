@@ -55,6 +55,28 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
   const [pickerOpen, setPickerOpen] = useState<string | null>(null); // placeholder name or "__insert__"
   const commandRef = useRef<HTMLTextAreaElement>(null);
 
+  // Close variable picker when clicking outside or pressing Escape
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-variable-picker]")) {
+        setPickerOpen(null);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setPickerOpen(null);
+      }
+    };
+    window.addEventListener("mousedown", handleClickOutside);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", handleClickOutside);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [pickerOpen]);
+
   const autoGrow = useCallback(() => {
     const el = commandRef.current;
     if (!el) return;
@@ -115,10 +137,10 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
   return (
     // The outer wrapper must not clip: the connection bands hang a few pixels
     // outside the card so they can be grabbed from just beyond the border.
-    <div className="group relative w-[288px]">
+    <div className={cn("group relative w-[288px]", pickerOpen && "!z-50")}>
       <div
         className={cn(
-          "fuse-card relative overflow-hidden rounded-node border bg-base",
+          "fuse-card relative rounded-node border bg-base",
           "transition-[border-color,box-shadow,transform] duration-150 ease-out",
           status === "idle" && "border-line",
           status === "pending" && "border-line",
@@ -131,7 +153,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
         )}
       >
         {/* Header — double-click the name to rename. */}
-        <div className="flex h-[30px] items-center gap-1.5 border-b border-line/70 px-2.5">
+        <div className="flex h-[30px] items-center gap-1.5 border-b border-line/70 px-2.5 rounded-t-[calc(var(--radius-node)-1px)]">
           <TerminalSquare size={12} className="shrink-0 text-fg-subtle" strokeWidth={1.75} />
 
           {editingLabel ? (
@@ -273,7 +295,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
             {inputs.map((name) => {
               const bound = availableVars.some((v) => v.name === name);
               return (
-                <div key={name} className="relative">
+                <div key={name} className="relative" data-variable-picker>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -281,7 +303,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
                       setPickerOpen(pickerOpen === name ? null : name);
                     }}
                     className={cn(
-                      "flex items-center gap-1 rounded-[4px] px-1.5 py-[2px] text-[10px] font-mono transition",
+                      "flex items-center gap-1 rounded-[4px] px-1.5 py-[2px] text-[10px] font-mono transition cursor-pointer",
                       bound
                         ? "bg-success/12 text-success hover:bg-success/20"
                         : "bg-warn/12 text-warn hover:bg-warn/20",
@@ -294,7 +316,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
                   </button>
 
                   {pickerOpen === name && availableVars.length > 0 && (
-                    <div className="absolute left-0 top-full z-50 mt-1 min-w-[180px] rounded-[6px] border border-line bg-base shadow-lg">
+                    <div className="absolute left-0 top-full z-50 mt-1 min-w-[190px] max-w-[260px] max-h-[190px] overflow-y-auto rounded-[6px] border border-line bg-base shadow-2xl py-1">
                       {availableVars.map((v) => (
                         <button
                           key={v.name}
@@ -304,7 +326,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
                             replaceVariable(name, v.name);
                           }}
                           className={cn(
-                            "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] transition hover:bg-hover",
+                            "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] transition hover:bg-hover cursor-pointer",
                             v.name === name && "bg-accent/10 text-accent",
                           )}
                         >
@@ -321,14 +343,14 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
 
             {/* Insert new variable button */}
             {availableVars.length > 0 && (
-              <div className="relative">
+              <div className="relative" data-variable-picker>
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation();
                     setPickerOpen(pickerOpen === "__insert__" ? null : "__insert__");
                   }}
-                  className="flex items-center gap-0.5 rounded-[4px] px-1.5 py-[2px] text-[10px] text-fg-subtle transition hover:bg-hover hover:text-fg"
+                  className="flex items-center gap-0.5 rounded-[4px] px-1.5 py-[2px] text-[10px] text-fg-subtle transition hover:bg-hover hover:text-fg cursor-pointer"
                   title="Insert a variable"
                 >
                   <Plus size={9} strokeWidth={2.5} />
@@ -336,7 +358,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
                 </button>
 
                 {pickerOpen === "__insert__" && (
-                  <div className="absolute left-0 top-full z-50 mt-1 min-w-[180px] rounded-[6px] border border-line bg-base shadow-lg">
+                  <div className="absolute left-0 top-full z-50 mt-1 min-w-[190px] max-w-[260px] max-h-[190px] overflow-y-auto rounded-[6px] border border-line bg-base shadow-2xl py-1">
                     {availableVars
                       .filter((v) => !inputs.includes(v.name))
                       .map((v) => (
@@ -347,7 +369,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
                             e.stopPropagation();
                             insertVariable(v.name);
                           }}
-                          className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] transition hover:bg-hover"
+                          className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[11px] transition hover:bg-hover cursor-pointer"
                         >
                           <Variable size={10} className="shrink-0 text-fg-subtle" />
                           <span className="font-mono font-medium text-fg">{v.name}</span>

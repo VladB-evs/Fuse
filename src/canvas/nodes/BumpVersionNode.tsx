@@ -33,7 +33,8 @@ function BumpVersionNodeImpl({ id, data, selected }: NodeProps<BumpVersionNodeTy
     } else if (data.part === "patch") {
       patch++;
     }
-    return `${major}.${minor}.${patch}`;
+    const prefix = input.startsWith('v') ? 'v' : input.startsWith('V') ? 'V' : '';
+    return `${prefix}${major}.${minor}.${patch}`;
   };
 
   const preview = getPreview();
