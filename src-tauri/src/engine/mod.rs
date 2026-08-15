@@ -900,6 +900,7 @@ mod tests {
         WorkflowNode {
             id: id.into(),
             position: Position { x: 0.0, y },
+            disabled: None,
             payload: NodePayload::Command(CommandData {
                 label: id.into(),
                 command: command.into(),
@@ -916,6 +917,7 @@ mod tests {
             target: target.into(),
             source_handle: None,
             target_handle: None,
+            disabled: None,
         }
     }
 
@@ -1056,11 +1058,13 @@ mod tests {
         let frame = WorkflowNode {
             id: "frame".into(),
             position: Position { x: 0.0, y: 0.0 },
+            disabled: None,
             payload: NodePayload::Frame(FrameData {
                 label: "Repo".into(),
                 working_dir: Some(dir.display().to_string()),
                 width: 400.0,
                 height: 300.0,
+                color: None,
             }),
         };
 
@@ -1121,6 +1125,7 @@ mod tests {
         WorkflowNode {
             id: id.into(),
             position: Position { x: 0.0, y },
+            disabled: None,
             payload: NodePayload::Approval(ApprovalData {
                 label: id.into(),
                 ..Default::default()
@@ -1132,6 +1137,7 @@ mod tests {
         WorkflowNode {
             id: id.into(),
             position: Position { x: 0.0, y },
+            disabled: None,
             payload: NodePayload::Choice(ChoiceData {
                 label: id.into(),
                 allow_multiple,
@@ -1144,6 +1150,7 @@ mod tests {
         WorkflowNode {
             id: id.into(),
             position: Position { x: 0.0, y },
+            disabled: None,
             payload: NodePayload::Input(InputData {
                 label: id.into(),
                 variable: variable.into(),

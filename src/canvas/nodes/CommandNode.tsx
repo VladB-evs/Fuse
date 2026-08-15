@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Handle, type NodeProps } from "@xyflow/react";
 import { PORTS } from "@/canvas/ports";
+import { NodeBypassWire } from "./NodeBypassWire";
 import {
   ChevronDown,
   Eject,
@@ -8,6 +9,7 @@ import {
   Frame as FrameIcon,
   Play,
   Plus,
+  Power,
   Settings2,
   TerminalSquare,
   Variable,
@@ -124,6 +126,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
   );
 
   const isRunning = status === "running";
+  const disabled = !!data.disabled;
   const tail = isRunning && lines ? lines.slice(-TAIL_LINES) : [];
 
   const statusLabel = (() => {
@@ -141,7 +144,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
       <div
         className={cn(
           "fuse-card relative rounded-node border bg-base",
-          "transition-[border-color,box-shadow] duration-150 ease-out",
+          "transition-[border-color,box-shadow,opacity,filter] duration-150 ease-out",
           status === "idle" && "border-line",
           status === "pending" && "border-line",
           status === "skipped" && "border-line opacity-55",
@@ -149,9 +152,13 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
           status === "success" && "border-success/35",
           status === "failed" && "border-danger/55",
           status === "cancelled" && "border-warn/45",
+          disabled && "opacity-50 grayscale brightness-90 border-dashed border-line/60",
           selected && "border-accent shadow-[0_0_0_1px_var(--color-accent)]",
         )}
       >
+        {/* Animated Dynamic Bypass Line connecting actual entry/exit anchors */}
+        <NodeBypassWire nodeId={id} disabled={disabled} />
+
         {/* Clipped shimmer effect when running — isolated so it doesn't bleed onto the canvas */}
         {isRunning && (
           <div className="running-sheen pointer-events-none absolute inset-0 overflow-hidden rounded-node" />
@@ -189,7 +196,22 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
             </span>
           )}
 
-          {inputs.length > 0 && (
+          {disabled && (
+            <button
+              type="button"
+              title="Step is disabled and bypassed during runs. Click to re-enable."
+              onClick={(e) => {
+                e.stopPropagation();
+                useWorkflowStore.getState().toggleNodeDisabled(id);
+              }}
+              className="nodrag flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-2.5 py-0.5 text-[9.5px] font-bold text-white shadow-[0_0_10px_rgba(91,108,255,0.6)] hover:bg-accent/90 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+            >
+              <Power size={9} strokeWidth={2.8} />
+              <span>Enable</span>
+            </button>
+          )}
+
+          {inputs.length > 0 && !disabled && (
             <span
               title={`Asks for ${inputs.join(", ")} before running`}
               className="flex shrink-0 items-center gap-1 rounded-[4px] bg-accent/12 px-1.5 py-0.5 text-[9.5px] font-medium text-accent"

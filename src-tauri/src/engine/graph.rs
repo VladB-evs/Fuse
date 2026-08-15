@@ -6,7 +6,7 @@
 //! the order this produces and consults `dependencies_of` for gating.
 
 use crate::model::{Workflow, WorkflowNode};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Debug, thiserror::Error)]
 pub enum GraphError {
@@ -29,14 +29,17 @@ impl Dag {
         &self.order
     }
 
-    pub fn dependencies_of(&self, node_id: &str) -> &[String] {
+    /// The list of block ids that must finish successfully before `id` is
+    /// allowed to run.
+    pub fn dependencies_of(&self, id: &str) -> &[String] {
         self.dependencies
-            .get(node_id)
+            .get(id)
             .map(|v| v.as_slice())
             .unwrap_or(&[])
     }
 
-    pub fn build(workflow: &Workflow) -> Result<Dag, GraphError> {
+    /// Builds a DAG from a workflow document.
+    pub fn build(workflow: &Workflow) -> Result<Self, GraphError> {
         // Frames are scenery — they group blocks and set a directory, but they
         // never execute, so they stay out of the graph entirely. Every other
         // kind is a step, whether it runs a command or asks a question.
@@ -70,10 +73,13 @@ impl Dag {
             }
         }
 
-        // De-duplicate parallel edges so indegree accounting stays honest.
-        let mut seen_pairs: HashSet<(&str, &str)> = HashSet::new();
+        // Build active outgoing adjacency map for all nodes
+        let mut outgoing: HashMap<&str, Vec<&str>> = HashMap::new();
 
         for edge in &workflow.edges {
+            if edge.disabled == Some(true) {
+                continue;
+            }
             if !known.contains(edge.source.as_str()) {
                 return Err(GraphError::DanglingEdge(edge.source.clone()));
             }
@@ -81,41 +87,81 @@ impl Dag {
                 return Err(GraphError::DanglingEdge(edge.target.clone()));
             }
 
-            // Expand source and target nodes.
-            // If the node is executable, it resolves to itself.
-            // If it's a frame, it resolves to all executable blocks inside it.
-            // Otherwise, it resolves to nothing (an empty frame or non-executable node).
+            outgoing
+                .entry(edge.source.as_str())
+                .or_default()
+                .push(edge.target.as_str());
+        }
+
+        // Helper to resolve runnable targets through zero or more disabled nodes
+        let resolve_runnable_targets = |start: &str| -> Vec<String> {
+            let mut result = Vec::new();
+            let mut visited = HashSet::new();
+            let mut queue = VecDeque::new();
+
+            queue.push_back(start);
+            visited.insert(start);
+
+            while let Some(curr) = queue.pop_front() {
+                if ids.contains(curr) {
+                    result.push(curr.to_string());
+                } else if let Some(children) = frame_children.get(curr) {
+                    for &child in children {
+                        if ids.contains(child) {
+                            result.push(child.to_string());
+                        }
+                    }
+                } else {
+                    // curr is a non-runnable node (e.g. disabled block or empty frame);
+                    // traverse downstream active edges to bypass this node and connect downstream
+                    if let Some(next_nodes) = outgoing.get(curr) {
+                        for &next in next_nodes {
+                            if visited.insert(next) {
+                                queue.push_back(next);
+                            }
+                        }
+                    }
+                }
+            }
+            result
+        };
+
+        // De-duplicate parallel edges so indegree accounting stays honest.
+        let mut seen_pairs: HashSet<(&str, String)> = HashSet::new();
+
+        for edge in &workflow.edges {
+            if edge.disabled == Some(true) {
+                continue;
+            }
+
+            // Expand sources: if source is runnable, it's [source]. If frame, all runnable children.
             let sources = if ids.contains(edge.source.as_str()) {
                 vec![edge.source.as_str()]
             } else if let Some(children) = frame_children.get(edge.source.as_str()) {
                 children.clone()
             } else {
+                // If edge source is a disabled block, we don't start from here because
+                // upstream runnable nodes will traverse forward through this disabled block.
                 vec![]
             };
 
-            let targets = if ids.contains(edge.target.as_str()) {
-                vec![edge.target.as_str()]
-            } else if let Some(children) = frame_children.get(edge.target.as_str()) {
-                children.clone()
-            } else {
-                vec![]
-            };
+            let targets = resolve_runnable_targets(edge.target.as_str());
 
             for &s in &sources {
-                for &t in &targets {
-                    if s == t {
+                for t in &targets {
+                    if s == t.as_str() {
                         return Err(GraphError::Cycle(s.to_string()));
                     }
-                    if seen_pairs.insert((s, t)) {
+                    if seen_pairs.insert((s, t.clone())) {
                         dependencies
-                            .entry(t.to_string())
+                            .entry(t.clone())
                             .or_default()
                             .push(s.to_string());
                         dependents
                             .entry(s.to_string())
                             .or_default()
-                            .push(t.to_string());
-                        *indegree.entry(t.to_string()).or_insert(0) += 1;
+                            .push(t.clone());
+                        *indegree.entry(t.clone()).or_insert(0) += 1;
                     }
                 }
             }
@@ -207,6 +253,7 @@ mod tests {
         WorkflowNode {
             id: id.into(),
             position: Position { x: 0.0, y },
+            disabled: None,
             payload: NodePayload::Command(CommandData {
                 command: format!("echo {id}"),
                 ..Default::default()
@@ -221,6 +268,7 @@ mod tests {
             target: target.into(),
             source_handle: None,
             target_handle: None,
+            disabled: None,
         }
     }
 
@@ -310,6 +358,7 @@ mod tests {
                 x: -100.0,
                 y: -100.0,
             },
+            disabled: None,
             payload: NodePayload::Frame(crate::model::FrameData::default()),
         }
     }
@@ -328,5 +377,31 @@ mod tests {
     fn a_workflow_of_only_frames_has_nothing_to_run() {
         let wf = workflow(vec![frame("f")], vec![]);
         assert!(matches!(Dag::build(&wf), Err(GraphError::Empty)));
+    }
+
+    #[test]
+    fn disabled_nodes_are_skipped_from_execution() {
+        let mut n2 = node("b", 100.0);
+        n2.disabled = Some(true);
+        let wf = workflow(
+            vec![node("a", 0.0), n2, node("c", 200.0)],
+            vec![edge("a", "b"), edge("b", "c")],
+        );
+        let dag = Dag::build(&wf).unwrap();
+        assert_eq!(dag.order(), &["a", "c"]);
+        assert_eq!(dag.dependencies_of("c"), &["a"]);
+    }
+
+    #[test]
+    fn disabled_edges_do_not_impose_dependencies() {
+        let mut e = edge("a", "b");
+        e.disabled = Some(true);
+        let wf = workflow(
+            vec![node("a", 0.0), node("b", 100.0)],
+            vec![e],
+        );
+        let dag = Dag::build(&wf).unwrap();
+        // Since the edge is disabled, 'b' has no dependencies on 'a'
+        assert_eq!(dag.dependencies_of("b"), &[] as &[String]);
     }
 }

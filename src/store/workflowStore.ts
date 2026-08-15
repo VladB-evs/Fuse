@@ -16,6 +16,7 @@ import {
 } from "@xyflow/react";
 import { newId } from "@/lib/id";
 import { placeholdersIn } from "@/lib/placeholders";
+import { calculateSpliceLayout } from "@/lib/edgeSplice";
 import { SOURCE_PORT, TARGET_PORT } from "@/canvas/ports";
 import {
   frameAt,
@@ -77,12 +78,17 @@ export type WorkflowState = {
   disconnectNodes: (nodeIds: string[]) => number;
   /** Move an existing wire's end onto a different block. */
   reconnect: (edgeId: string, connection: Connection) => void;
+  /** Splice a node into an existing wire (A -> Node -> B) with automatic spacing. */
+  spliceNodeIntoEdge: (edgeId: string, nodeId: string) => void;
 
   /** Returns the new node id so the caller can focus it. */
   addBlockNode: (kind: BlockKind, options?: { position?: { x: number; y: number }; frameId?: string | null; prefill?: Partial<BlockData> }) => string;
   addFrameNode: (options?: { position?: { x: number; y: number } }) => string;
   updateNodeData: (id: string, patch: Partial<BlockData>) => void;
   updateFrameData: (id: string, patch: Partial<FrameData>) => void;
+  toggleNodeDisabled: (id: string) => void;
+  toggleEdgeDisabled: (id: string) => void;
+  applySlice: (nodeIds: string[], edgeIds: string[]) => void;
   /** Which frame a block would end up in if dropped where it is now. */
   frameOnDropFor: (nodeId: string) => string | null;
   /** Take a block out of its frame and park it just outside. */
@@ -392,7 +398,7 @@ const Z_BLOCK = 1;
 /** Breathing room between a frame's edge and the blocks it holds. */
 const FRAME_PAD = 26;
 /** A frame never collapses below this, so an empty one is still a target. */
-const FRAME_MIN = { width: 320, height: 190 };
+const FRAME_MIN = { width: 340, height: 200 };
 
 /** A command block before it has been measured — enough to place it in a frame. */
 const NOMINAL_BLOCK = { width: 288, height: 88 };
@@ -817,6 +823,80 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
       }));
     },
 
+    spliceNodeIntoEdge: (edgeId, nodeId) => {
+      const state = get();
+      const edge = state.edges.find((e) => e.id === edgeId);
+      const draggedNode = state.nodes.find((n) => n.id === nodeId);
+      if (!edge || !draggedNode || draggedNode.type === "frame") return;
+
+      const sourceNode = state.nodes.find((n) => n.id === edge.source);
+      const targetNode = state.nodes.find((n) => n.id === edge.target);
+      if (!sourceNode || !targetNode) return;
+
+      pushHistory();
+
+      // Compute automatic spacing and downstream shift
+      const { draggedNodePosition, nodePositions, assignedFrameId } = calculateSpliceLayout(
+        sourceNode,
+        targetNode,
+        draggedNode,
+        state.nodes,
+        state.edges,
+      );
+
+      // Create the 2 new edges
+      const edgeIn = withPorts({
+        id: newId(),
+        source: edge.source,
+        target: nodeId,
+        sourceHandle: edge.sourceHandle ?? SOURCE_PORT,
+        targetHandle: TARGET_PORT,
+        type: "flow",
+      });
+
+      const edgeOut = withPorts({
+        id: newId(),
+        source: nodeId,
+        target: edge.target,
+        sourceHandle: SOURCE_PORT,
+        targetHandle: edge.targetHandle ?? TARGET_PORT,
+        type: "flow",
+      });
+
+      // Update edges: remove old edge, add the two new ones
+      const nextEdges = [...state.edges.filter((e) => e.id !== edgeId), edgeIn, edgeOut];
+
+      // Update nodes with new positions and frame assignment
+      let nextNodes = state.nodes.map((node) => {
+        if (node.id === nodeId) {
+          return {
+            ...node,
+            position: draggedNodePosition,
+            data: {
+              ...node.data,
+              frameId: assignedFrameId,
+            },
+          } as FuseNode;
+        }
+        if (nodePositions.has(node.id)) {
+          return {
+            ...node,
+            position: nodePositions.get(node.id)!,
+          } as FuseNode;
+        }
+        return node;
+      });
+
+      // Recompute frame boundaries so frames expand to fit shifted/inserted blocks
+      nextNodes = fitFrames(nextNodes, new Map(), true);
+
+      set({
+        nodes: nextNodes,
+        edges: nextEdges,
+        dirty: true,
+      });
+    },
+
     addBlockNode: (kind, options) => {
       const state = get();
       pushHistory();
@@ -905,6 +985,50 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
           n.id === id && isFrameNode(n)
             ? sizedFrame({ ...n, data: { ...n.data, ...patch } })
             : n,
+        ),
+        dirty: true,
+      }));
+    },
+
+    toggleNodeDisabled: (id) => {
+      pushHistory();
+      set((state) => ({
+        nodes: state.nodes.map((n) =>
+          n.id === id && isBlockNode(n)
+            ? ({ ...n, data: { ...n.data, disabled: !n.data.disabled } } as FuseNode)
+            : n,
+        ),
+        dirty: true,
+      }));
+    },
+
+    toggleEdgeDisabled: (id) => {
+      pushHistory();
+      set((state) => ({
+        edges: state.edges.map((e) =>
+          e.id === id
+            ? { ...e, data: { ...e.data, disabled: !e.data?.disabled } }
+            : e,
+        ),
+        dirty: true,
+      }));
+    },
+
+    applySlice: (nodeIds, edgeIds) => {
+      if (nodeIds.length === 0 && edgeIds.length === 0) return;
+      pushHistory();
+      const nSet = new Set(nodeIds);
+      const eSet = new Set(edgeIds);
+      set((state) => ({
+        nodes: state.nodes.map((n) =>
+          nSet.has(n.id) && isBlockNode(n)
+            ? ({ ...n, data: { ...n.data, disabled: !n.data.disabled } } as FuseNode)
+            : n,
+        ),
+        edges: state.edges.map((e) =>
+          eSet.has(e.id)
+            ? { ...e, data: { ...e.data, disabled: !e.data?.disabled } }
+            : e,
         ),
         dirty: true,
       }));
@@ -1058,6 +1182,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
             sourceHandle: e.sourceHandle,
             targetHandle: e.targetHandle,
             type: "flow",
+            data: { disabled: !!e.disabled },
           }),
         ),
         createdAt: doc.createdAt,
@@ -1119,6 +1244,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
           target: e.target,
           sourceHandle: e.sourceHandle ?? null,
           targetHandle: e.targetHandle ?? null,
+          disabled: e.data?.disabled || (e as any).disabled || false,
         })),
         createdAt: state.createdAt,
         updatedAt: state.updatedAt,

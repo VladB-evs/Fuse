@@ -21,6 +21,7 @@ import {
   Upload,
   FileJson,
   LayoutTemplate,
+  Map,
   type LucideIcon,
 } from "lucide-react";
 import { listWorkflows } from "@/bridge/commands";
@@ -206,6 +207,9 @@ export function CommandPalette() {
               <Group heading="View">
                 <Item icon={PanelBottom} onSelect={act(toggleOutput)} shortcut="⌘ /">
                   Toggle output panel
+                </Item>
+                <Item icon={Map} onSelect={act(() => useUIStore.getState().toggleMinimap())} shortcut="M">
+                  Toggle minimap
                 </Item>
                 <Item icon={LayoutTemplate} onSelect={act(autoLayoutGraph)}>
                   Auto layout graph

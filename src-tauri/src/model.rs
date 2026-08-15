@@ -86,6 +86,8 @@ pub struct CommandData {
     pub env: BTreeMap<String, String>,
     /// When true, a failure here does not stop downstream nodes.
     pub continue_on_error: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 /// A stop sign. The run pauses here until someone reads what came before and
@@ -99,6 +101,8 @@ pub struct ApprovalData {
     pub frame_id: Option<String>,
     pub continue_label: String,
     pub stop_label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 impl Default for ApprovalData {
@@ -109,6 +113,7 @@ impl Default for ApprovalData {
             frame_id: None,
             continue_label: "Continue".into(),
             stop_label: "Stop".into(),
+            disabled: None,
         }
     }
 }
@@ -124,6 +129,8 @@ pub struct ChoiceData {
     pub frame_id: Option<String>,
     /// When true the user may take several paths at once.
     pub allow_multiple: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 impl Default for ChoiceData {
@@ -133,6 +140,7 @@ impl Default for ChoiceData {
             message: "Which path should run next?".into(),
             frame_id: None,
             allow_multiple: false,
+            disabled: None,
         }
     }
 }
@@ -150,6 +158,8 @@ pub struct InputData {
     pub frame_id: Option<String>,
     /// Masks the field, and keeps the value out of the output log.
     pub secret: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 impl Default for InputData {
@@ -161,6 +171,7 @@ impl Default for InputData {
             default_value: String::new(),
             frame_id: None,
             secret: false,
+            disabled: None,
         }
     }
 }
@@ -181,6 +192,8 @@ pub struct ScriptData {
     pub frame_id: Option<String>,
     pub env: BTreeMap<String, String>,
     pub continue_on_error: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 impl Default for ScriptData {
@@ -193,6 +206,7 @@ impl Default for ScriptData {
             frame_id: None,
             env: BTreeMap::new(),
             continue_on_error: false,
+            disabled: None,
         }
     }
 }
@@ -211,6 +225,8 @@ pub struct ConditionData {
     pub frame_id: Option<String>,
     pub true_label: String,
     pub false_label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 impl Default for ConditionData {
@@ -222,6 +238,7 @@ impl Default for ConditionData {
             frame_id: None,
             true_label: "Yes".into(),
             false_label: "No".into(),
+            disabled: None,
         }
     }
 }
@@ -239,6 +256,8 @@ pub struct CaptureData {
     /// Keep only the first line — the common case for ids, hashes and versions.
     pub first_line_only: bool,
     pub continue_on_error: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 impl Default for CaptureData {
@@ -251,6 +270,7 @@ impl Default for CaptureData {
             frame_id: None,
             first_line_only: true,
             continue_on_error: false,
+            disabled: None,
         }
     }
 }
@@ -268,6 +288,8 @@ pub struct WaitData {
     pub timeout_seconds: f64,
     pub working_dir: Option<String>,
     pub frame_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 impl Default for WaitData {
@@ -280,6 +302,7 @@ impl Default for WaitData {
             timeout_seconds: 60.0,
             working_dir: None,
             frame_id: None,
+            disabled: None,
         }
     }
 }
@@ -300,6 +323,8 @@ pub struct HttpData {
     pub fail_on_error_status: bool,
     pub working_dir: Option<String>,
     pub frame_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 impl Default for HttpData {
@@ -314,6 +339,7 @@ impl Default for HttpData {
             fail_on_error_status: true,
             working_dir: None,
             frame_id: None,
+            disabled: None,
         }
     }
 }
@@ -326,6 +352,7 @@ pub struct FrameData {
     pub working_dir: Option<String>,
     pub width: f64,
     pub height: f64,
+    pub color: Option<String>,
 }
 
 impl Default for FrameData {
@@ -335,6 +362,7 @@ impl Default for FrameData {
             working_dir: None,
             width: 480.0,
             height: 360.0,
+            color: None,
         }
     }
 }
@@ -345,6 +373,8 @@ pub struct NoteData {
     pub label: String,
     pub frame_id: Option<String>,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -356,6 +386,8 @@ pub struct ReadFileData {
     pub variable: String,
     pub working_dir: Option<String>,
     pub continue_on_error: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -367,6 +399,8 @@ pub struct WriteFileData {
     pub content: String,
     pub working_dir: Option<String>,
     pub continue_on_error: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -376,6 +410,8 @@ pub struct SetVariableData {
     pub frame_id: Option<String>,
     pub variable: String,
     pub value: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -383,9 +419,12 @@ pub struct SetVariableData {
 pub struct WorkflowNode {
     pub id: String,
     pub position: Position,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
     #[serde(flatten)]
     pub payload: NodePayload,
 }
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct BumpVersionData {
@@ -394,6 +433,8 @@ pub struct BumpVersionData {
     pub variable_in: String,
     pub variable_out: String,
     pub part: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 impl Default for BumpVersionData {
@@ -404,6 +445,7 @@ impl Default for BumpVersionData {
             variable_in: String::new(),
             variable_out: String::new(),
             part: "patch".into(),
+            disabled: None,
         }
     }
 }
@@ -418,6 +460,8 @@ pub struct AiCommitData {
     pub style: String,
     pub working_dir: Option<String>,
     pub continue_on_error: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 impl Default for AiCommitData {
@@ -430,6 +474,7 @@ impl Default for AiCommitData {
             style: "conventional".into(),
             working_dir: None,
             continue_on_error: false,
+            disabled: None,
         }
     }
 }
@@ -449,9 +494,33 @@ impl WorkflowNode {
         }
     }
 
+    pub fn is_disabled(&self) -> bool {
+        if self.disabled == Some(true) {
+            return true;
+        }
+        match &self.payload {
+            NodePayload::Command(c) => c.disabled == Some(true),
+            NodePayload::Approval(a) => a.disabled == Some(true),
+            NodePayload::Choice(c) => c.disabled == Some(true),
+            NodePayload::Input(i) => i.disabled == Some(true),
+            NodePayload::Script(s) => s.disabled == Some(true),
+            NodePayload::Condition(c) => c.disabled == Some(true),
+            NodePayload::Capture(c) => c.disabled == Some(true),
+            NodePayload::Wait(w) => w.disabled == Some(true),
+            NodePayload::Http(h) => h.disabled == Some(true),
+            NodePayload::Note(n) => n.disabled == Some(true),
+            NodePayload::ReadFile(r) => r.disabled == Some(true),
+            NodePayload::WriteFile(w) => w.disabled == Some(true),
+            NodePayload::SetVariable(s) => s.disabled == Some(true),
+            NodePayload::BumpVersion(b) => b.disabled == Some(true),
+            NodePayload::AiCommit(a) => a.disabled == Some(true),
+            NodePayload::Frame(_) => false,
+        }
+    }
+
     /// Everything except a frame is a step the scheduler has to visit.
     pub fn is_runnable(&self) -> bool {
-        !matches!(self.payload, NodePayload::Frame(_))
+        !matches!(self.payload, NodePayload::Frame(_)) && !self.is_disabled()
     }
 
     /// The frame this step was dropped into, if any. Frames themselves never
@@ -595,6 +664,8 @@ pub struct WorkflowEdge {
     pub source_handle: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_handle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -654,6 +725,7 @@ mod tests {
         let node = WorkflowNode {
             id: "n1".into(),
             position: Position { x: 12.0, y: 40.0 },
+            disabled: None,
             payload: NodePayload::Command(CommandData {
                 label: "Terminal".into(),
                 command: "git add .".into(),
@@ -675,6 +747,7 @@ mod tests {
         WorkflowNode {
             id: id.into(),
             position: Position { x: 0.0, y: 0.0 },
+            disabled: None,
             payload: NodePayload::Command(CommandData {
                 command: "echo hi".into(),
                 frame_id: frame_id.map(str::to_string),
@@ -687,6 +760,7 @@ mod tests {
         WorkflowNode {
             id: id.into(),
             position: Position { x: 0.0, y: 0.0 },
+            disabled: None,
             payload: NodePayload::Frame(FrameData {
                 label: id.into(),
                 working_dir: dir.map(str::to_string),
@@ -773,6 +847,7 @@ mod tests {
         let node = WorkflowNode {
             id: "gate".into(),
             position: Position { x: 0.0, y: 0.0 },
+            disabled: None,
             payload: NodePayload::Approval(ApprovalData {
                 message: "Ship it?".into(),
                 frame_id: Some("f".into()),
@@ -796,6 +871,7 @@ mod tests {
         let mut gate = WorkflowNode {
             id: "gate".into(),
             position: Position { x: 0.0, y: 0.0 },
+            disabled: None,
             payload: NodePayload::Choice(ChoiceData::default()),
         };
         if let NodePayload::Choice(data) = &mut gate.payload {

@@ -15,6 +15,7 @@ import type {
 
 export interface AppSettings {
   customWorkflowDir: string | null;
+  workflowDir: string;
 }
 
 export function getSettings(): Promise<AppSettings> {
@@ -23,6 +24,10 @@ export function getSettings(): Promise<AppSettings> {
 
 export function setWorkflowDirectory(path: string | null): Promise<void> {
   return invoke("set_workflow_directory", { path });
+}
+
+export function openDirectory(path: string): Promise<void> {
+  return invoke("open_directory", { path });
 }
 
 export function listWorkflows(): Promise<WorkflowSummary[]> {

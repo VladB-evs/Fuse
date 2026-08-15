@@ -50,6 +50,7 @@ export type BlockKind = Exclude<NodeKind, "frame">;
 export type BlockCommon = {
   label: string;
   frameId: string | null;
+  disabled?: boolean;
 };
 
 export type CommandData = BlockCommon & {
@@ -189,12 +190,15 @@ export type BlockData =
   | BumpVersionData
   | AiCommitData;
 
+export type FrameColor = "default" | "blue" | "green" | "purple" | "amber" | "rose" | "cyan";
+
 export type FrameData = {
   label: string;
   /** Directory every block inside this frame runs in. `null` inherits. */
   workingDir: string | null;
   width: number;
   height: number;
+  color?: FrameColor;
 };
 
 export type XY = { x: number; y: number };
@@ -225,6 +229,7 @@ export type PersistedEdge = {
   target: string;
   sourceHandle?: string | null;
   targetHandle?: string | null;
+  disabled?: boolean;
 };
 
 export type WorkflowDocument = {

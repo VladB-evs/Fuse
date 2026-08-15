@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { type NodeProps } from "@xyflow/react";
 import { useWorkflowStore } from "@/store/workflowStore";
-import { CodeArea, NodeShell, TextField } from "./NodeShell";
+import { CodeArea, NodeShell } from "./NodeShell";
 import type { ApprovalNodeType } from "@/types/workflow";
 
 /**
@@ -29,23 +29,29 @@ function ApprovalNodeImpl({ id, data, selected }: NodeProps<ApprovalNodeType>) {
         onChange={(message) => updateNodeData(id, { message })}
       />
 
-      <div className="flex items-center gap-1.5 border-t border-line/60 pt-2">
-        <span className="text-[10px] text-success">Go</span>
-        <TextField
-          value={data.continueLabel}
-          placeholder="Continue"
-          mono={false}
-          onCommit={beginEdit}
-          onChange={(continueLabel) => updateNodeData(id, { continueLabel })}
-        />
-        <span className="text-[10px] text-danger">Stop</span>
-        <TextField
-          value={data.stopLabel}
-          placeholder="Stop"
-          mono={false}
-          onCommit={beginEdit}
-          onChange={(stopLabel) => updateNodeData(id, { stopLabel })}
-        />
+      <div className="grid grid-cols-2 gap-2 border-t border-line/60 pt-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="shrink-0 text-[10.5px] font-medium text-success">Go</span>
+          <input
+            value={data.continueLabel}
+            placeholder="Continue"
+            spellCheck={false}
+            onFocus={beginEdit}
+            onChange={(e) => updateNodeData(id, { continueLabel: e.currentTarget.value })}
+            className="nodrag min-w-0 flex-1 rounded-[4px] border border-line bg-elevated/60 px-1.5 py-1 text-[10.5px] text-fg outline-none focus:border-accent"
+          />
+        </div>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="shrink-0 text-[10.5px] font-medium text-danger">Stop</span>
+          <input
+            value={data.stopLabel}
+            placeholder="Stop"
+            spellCheck={false}
+            onFocus={beginEdit}
+            onChange={(e) => updateNodeData(id, { stopLabel: e.currentTarget.value })}
+            className="nodrag min-w-0 flex-1 rounded-[4px] border border-line bg-elevated/60 px-1.5 py-1 text-[10.5px] text-fg outline-none focus:border-accent"
+          />
+        </div>
       </div>
     </NodeShell>
   );

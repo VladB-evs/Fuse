@@ -165,16 +165,27 @@ pub fn resolve_prompt(
 #[serde(rename_all = "camelCase")]
 pub struct AppSettings {
     pub custom_workflow_dir: Option<String>,
+    pub workflow_dir: String,
 }
 
 pub fn load_settings(data_dir: &std::path::Path) -> AppSettings {
     let path = data_dir.join("settings.json");
-    if let Ok(content) = std::fs::read_to_string(&path) {
-        if let Ok(settings) = serde_json::from_str(&content) {
-            return settings;
-        }
-    }
-    AppSettings::default()
+    let mut settings = if let Ok(content) = std::fs::read_to_string(&path) {
+        serde_json::from_str::<AppSettings>(&content).unwrap_or_default()
+    } else {
+        AppSettings::default()
+    };
+
+    let base = settings
+        .custom_workflow_dir
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| data_dir.to_path_buf());
+    let workflow_dir = base.join("workflows");
+    let _ = std::fs::create_dir_all(&workflow_dir);
+    settings.workflow_dir = workflow_dir.to_string_lossy().to_string();
+
+    settings
 }
 
 fn save_settings(data_dir: &std::path::Path, settings: &AppSettings) -> Result<(), String> {
@@ -186,6 +197,32 @@ fn save_settings(data_dir: &std::path::Path, settings: &AppSettings) -> Result<(
 #[tauri::command]
 pub async fn get_settings(state: State<'_, AppState>) -> Result<AppSettings, String> {
     Ok(load_settings(&state.app_data_dir))
+}
+
+#[tauri::command]
+pub async fn open_directory(path: String) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

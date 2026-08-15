@@ -34,6 +34,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::set_workflow_directory,
+            commands::open_directory,
             commands::list_workflows,
             commands::load_workflow,
             commands::save_workflow,

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -14,18 +14,21 @@ import {
   MarkerType,
   type Edge as RFEdge,
 } from "@xyflow/react";
-import { Maximize2, Minus, Plus } from "lucide-react";
+import { Maximize2, Minus, Plus, Map } from "lucide-react";
 import { nodeTypes } from "./nodes";
+import { FRAME_THEMES } from "./nodes/FrameNode";
 import { FlowEdge } from "./edges/FlowEdge";
 import { ConnectionLine } from "./edges/ConnectionLine";
+import { LaserSlicer } from "./LaserSlicer";
 import { SOURCE_PORT, TARGET_PORT } from "./ports";
 import { GRID, useWorkflowStore } from "@/store/workflowStore";
 import { useRuntimeStore } from "@/store/runtimeStore";
 import { useUIStore } from "@/store/uiStore";
 import { setCanvasProjection, recordMouseScreen, addCommandBlock } from "@/lib/actions";
+import { findIntersectingEdge } from "@/lib/edgeSplice";
 import { Kbd } from "@/components/ui/Kbd";
 import { cn } from "@/lib/utils";
-import type { FuseEdge, FuseNode } from "@/types/workflow";
+import type { FuseEdge, FuseNode, FrameColor } from "@/types/workflow";
 
 const edgeTypes = { flow: FlowEdge };
 
@@ -43,6 +46,29 @@ export function Canvas() {
   const onNodesChangeStore = useWorkflowStore((s) => s.onNodesChange);
   const onEdgesChange = useWorkflowStore((s) => s.onEdgesChange);
   const onConnect = useWorkflowStore((s) => s.onConnect);
+  const minimapOpen = useUIStore((s) => s.minimapOpen);
+  const toggleMinimap = useUIStore((s) => s.toggleMinimap);
+
+  const [ctrlHeld, setCtrlHeld] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Control") setCtrlHeld(true);
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Control") setCtrlHeld(false);
+    };
+    const handleBlur = () => setCtrlHeld(false);
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
 
   const { screenToFlowPosition, getNodes, zoomIn, zoomOut, fitView } = useReactFlow();
   const store = useStoreApi();
@@ -178,12 +204,22 @@ export function Canvas() {
    */
   const handleNodeDrag = useCallback((_: MouseEvent | TouchEvent, node: FuseNode) => {
     if (node.type === "frame") return;
-    const target = useWorkflowStore.getState().frameOnDropFor(node.id);
-    useUIStore.getState().setDropFrame(target === node.data.frameId ? null : target);
+    const wf = useWorkflowStore.getState();
+    const targetFrame = wf.frameOnDropFor(node.id);
+    useUIStore.getState().setDropFrame(targetFrame === node.data.frameId ? null : targetFrame);
+
+    const targetEdge = findIntersectingEdge(node, wf.edges, wf.nodes);
+    useUIStore.getState().setDropEdge(targetEdge ? targetEdge.id : null);
   }, []);
 
-  const handleNodeDragStop = useCallback(() => {
+  const handleNodeDragStop = useCallback((_: MouseEvent | TouchEvent, node: FuseNode) => {
+    const dropEdgeId = useUIStore.getState().dropEdgeId;
+    if (dropEdgeId && node && node.type !== "frame") {
+      useWorkflowStore.getState().spliceNodeIntoEdge(dropEdgeId, node.id);
+      useUIStore.getState().notify("Node inserted into connection");
+    }
     useUIStore.getState().setDropFrame(null);
+    useUIStore.getState().setDropEdge(null);
   }, []);
 
   /**
@@ -278,6 +314,9 @@ export function Canvas() {
         deleteKeyCode={null}
         multiSelectionKeyCode="Meta"
         selectionKeyCode="Shift"
+        panOnDrag={ctrlHeld ? false : true}
+        nodesDraggable={!ctrlHeld}
+        elementsSelectable={!ctrlHeld}
         onSelectionStart={() => window.getSelection()?.removeAllRanges()}
         onSelectionDrag={() => window.getSelection()?.removeAllRanges()}
         onSelectionEnd={() => window.getSelection()?.removeAllRanges()}
@@ -310,36 +349,58 @@ export function Canvas() {
         />
 
         <Panel position="bottom-left" className="!m-3">
-          <div className="flex items-center gap-0.5 rounded-lg border border-line bg-base/85 p-0.5 backdrop-blur-md">
-            <CanvasButton label="Zoom out" onClick={() => zoomOut({ duration: 160 })}>
+          <div className="flex items-center gap-0.5 rounded-lg border border-line bg-base/90 p-0.5 shadow-lg backdrop-blur-md">
+            <CanvasButton label="Zoom out (-)" onClick={() => zoomOut({ duration: 160 })}>
               <Minus size={13} strokeWidth={2} />
             </CanvasButton>
-            <CanvasButton label="Zoom in" onClick={() => zoomIn({ duration: 160 })}>
+            <CanvasButton label="Zoom in (+)" onClick={() => zoomIn({ duration: 160 })}>
               <Plus size={13} strokeWidth={2} />
             </CanvasButton>
             <CanvasButton
-              label="Fit canvas"
+              label="Fit canvas (0)"
               onClick={() => fitView({ padding: 0.3, duration: 240, maxZoom: 1 })}
             >
               <Maximize2 size={12} strokeWidth={2} />
             </CanvasButton>
+            <div className="my-0.5 h-3.5 w-px bg-line/80" />
+            <CanvasButton
+              label={minimapOpen ? "Hide minimap (M)" : "Show minimap (M)"}
+              onClick={toggleMinimap}
+              active={minimapOpen}
+            >
+              <Map size={12} strokeWidth={2} />
+            </CanvasButton>
           </div>
         </Panel>
 
-        <MiniMap
-          position="bottom-right"
-          className="!m-3"
-          pannable
-          zoomable
-          maskColor="rgba(8,8,10,0.72)"
-          nodeStrokeWidth={0}
-          nodeBorderRadius={3}
-          nodeColor={(node) => {
-            const status = useRuntimeStore.getState().statuses[node.id];
-            return (status && MINIMAP_COLORS[status]) || "#2e2e35";
-          }}
-          style={{ width: 148, height: 96 }}
-        />
+        {minimapOpen && (
+          <MiniMap
+            position="bottom-right"
+            className="!m-3 !border !border-line !rounded-xl !overflow-hidden !shadow-2xl backdrop-blur-md animate-in-soft"
+            pannable
+            zoomable
+            maskColor="rgba(8,8,10,0.76)"
+            nodeStrokeWidth={1}
+            nodeBorderRadius={4}
+            nodeColor={(node) => {
+              if (node.type === "frame") {
+                const color = (node.data as any)?.color as FrameColor | undefined;
+                return color && FRAME_THEMES[color] ? FRAME_THEMES[color].dot + "33" : "#27272a33";
+              }
+              const status = useRuntimeStore.getState().statuses[node.id];
+              return (status && MINIMAP_COLORS[status]) || "#3f3f46";
+            }}
+            nodeStrokeColor={(node) => {
+              if (node.type === "frame") {
+                const color = (node.data as any)?.color as FrameColor | undefined;
+                return color && FRAME_THEMES[color] ? FRAME_THEMES[color].dot : "#52525b";
+              }
+              return "#18181b";
+            }}
+            style={{ width: 164, height: 108, backgroundColor: "#0c0c0e" }}
+          />
+        )}
+        <LaserSlicer />
       </ReactFlow>
 
       {nodes.length === 0 && <EmptyState />}
@@ -350,10 +411,12 @@ export function Canvas() {
 function CanvasButton({
   label,
   onClick,
+  active,
   children,
 }: {
   label: string;
   onClick: () => void;
+  active?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -365,6 +428,7 @@ function CanvasButton({
       className={cn(
         "flex size-6 items-center justify-center rounded-[6px] text-fg-muted",
         "transition hover:bg-hover hover:text-fg active:scale-95",
+        active && "bg-accent/20 text-accent font-medium hover:bg-accent/30",
       )}
     >
       {children}

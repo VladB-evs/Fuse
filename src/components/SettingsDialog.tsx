@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { Settings, X, Download, RefreshCw, CheckCircle2, AlertCircle, Folder } from "lucide-react";
+import { Settings, X, Download, RefreshCw, CheckCircle2, AlertCircle, Folder, FolderOpen } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
 import { Button } from "./ui/Button";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { getSettings, setWorkflowDirectory } from "@/bridge/commands";
+import { getSettings, setWorkflowDirectory, openDirectory } from "@/bridge/commands";
 
 export function SettingsDialog() {
   const open = useUIStore((s) => s.settingsOpen);
@@ -18,12 +18,16 @@ export function SettingsDialog() {
   const [error, setError] = useState<string | null>(null);
   const [installed, setInstalled] = useState(false);
 
-  const [customDir, setCustomDir] = useState<string | null>(null);
+  const [workflowDir, setWorkflowDir] = useState<string>("");
+  const [isCustom, setIsCustom] = useState(false);
   const [pickingDir, setPickingDir] = useState(false);
 
   useEffect(() => {
     if (open) {
-      getSettings().then(s => setCustomDir(s.customWorkflowDir || "Default"));
+      getSettings().then((s) => {
+        setWorkflowDir(s.workflowDir);
+        setIsCustom(!!s.customWorkflowDir);
+      });
     }
   }, [open]);
 
@@ -39,6 +43,26 @@ export function SettingsDialog() {
 
   if (!open) return null;
 
+  async function handleOpenDirectory() {
+    if (workflowDir) {
+      try {
+        await openDirectory(workflowDir);
+      } catch (e) {
+        console.error("Failed to open directory:", e);
+      }
+    }
+  }
+
+  async function handleResetDirectory() {
+    try {
+      await setWorkflowDirectory(null);
+      useUIStore.getState().notify("Reset to default storage location. Reloading...");
+      setTimeout(() => window.location.reload(), 1000);
+    } catch (e) {
+      console.error("Failed to reset directory:", e);
+    }
+  }
+
   async function handleChangeDirectory() {
     setPickingDir(true);
     try {
@@ -49,7 +73,7 @@ export function SettingsDialog() {
       });
       if (selected && typeof selected === "string") {
         await setWorkflowDirectory(selected);
-        setCustomDir(selected);
+        setWorkflowDir(selected);
         useUIStore.getState().notify("Storage location updated. Reloading...");
         setTimeout(() => window.location.reload(), 1000);
       }
@@ -216,16 +240,49 @@ export function SettingsDialog() {
               <div>
                 <h3 className="text-[13px] font-medium text-fg mb-1">Storage Location</h3>
                 <p className="text-[12px] text-fg-subtle mb-3 leading-relaxed">
-                  Choose where your workflows are saved. If you change this, your existing workflows will be copied to the new folder.
+                  Where your workflows are saved on your computer.
                 </p>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 min-w-0 px-3 py-2 bg-base border border-line rounded-[6px] text-[12px] font-mono text-fg truncate">
-                    {customDir || "Loading..."}
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="flex-1 min-w-0 px-3 py-2 bg-base border border-line rounded-[6px] text-[11.5px] font-mono text-fg truncate cursor-pointer hover:border-accent/60 transition select-all"
+                      title={workflowDir ? `Click to open ${workflowDir}` : undefined}
+                      onClick={handleOpenDirectory}
+                    >
+                      {workflowDir || "Loading..."}
+                    </div>
+                    <Button
+                      variant="subtle"
+                      onClick={handleOpenDirectory}
+                      disabled={!workflowDir}
+                      title="Open in Finder"
+                      className="shrink-0"
+                    >
+                      <FolderOpen size={14} className="mr-1.5" />
+                      Open
+                    </Button>
+                    <Button
+                      variant="subtle"
+                      onClick={handleChangeDirectory}
+                      disabled={pickingDir}
+                      title="Change workflow storage location"
+                      className="shrink-0"
+                    >
+                      <Folder size={14} className="mr-1.5" />
+                      {pickingDir ? "Changing..." : "Change"}
+                    </Button>
                   </div>
-                  <Button variant="subtle" onClick={handleChangeDirectory} disabled={pickingDir} className="shrink-0">
-                    <Folder size={14} className="mr-2" />
-                    {pickingDir ? "Changing..." : "Change"}
-                  </Button>
+                  {isCustom && (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={handleResetDirectory}
+                        className="text-[11px] text-fg-subtle hover:text-fg underline decoration-line/60 hover:decoration-fg transition cursor-pointer"
+                      >
+                        Reset to default storage location
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -157,6 +157,14 @@ export function useKeyboardShortcuts() {
       if (!mod && !event.altKey && event.key === "f") {
         event.preventDefault();
         addFrameBlock();
+        return;
+      }
+
+      // Bare "m" toggles the canvas minimap
+      if (!mod && !event.altKey && event.key.toLowerCase() === "m") {
+        event.preventDefault();
+        ui.toggleMinimap();
+        return;
       }
     };
 

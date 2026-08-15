@@ -127,10 +127,34 @@
 /* ---------------------------------------------------------------------------
    React Flow overrides — we draw our own nodes, so strip its chrome.
 --------------------------------------------------------------------------- */
-.react-flow__node {
+.react-flow__node,
+.react-flow__node-input,
+.react-flow__node-default,
+.react-flow__node-output,
+.react-flow__node-group {
   font-family: var(--font-sans);
   font-size: 13px;
   cursor: default;
+  border: none !important;
+  outline: none !important;
+  background: transparent !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.react-flow__node.selected,
+.react-flow__node-input.selected,
+.react-flow__node-default.selected,
+.react-flow__node-output.selected,
+.react-flow__node-group.selected,
+.react-flow__node:focus,
+.react-flow__node:focus-visible,
+.react-flow__node-input:focus,
+.react-flow__node-input:focus-visible {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 /* ---------------------------------------------------------------------------
@@ -395,6 +419,110 @@
 }
 .fuse-edge--no .fuse-edge-pulse {
   stroke: color-mix(in oklab, var(--color-warn) 70%, white);
+}
+
+/* Edge splice preview when a node is dragged over it */
+.fuse-edge--splice .react-flow__edge-path {
+  stroke: var(--color-accent) !important;
+  stroke-width: 2.5 !important;
+  stroke-dasharray: 6 4 !important;
+  animation: fuse-dash-scroll 0.8s linear infinite !important;
+  filter: drop-shadow(0 0 8px var(--color-accent)) !important;
+}
+.fuse-edge--splice .fuse-edge-pulse {
+  stroke: #ffffff !important;
+  stroke-width: 3.5 !important;
+  opacity: 1 !important;
+  filter: drop-shadow(0 0 10px var(--color-accent)) !important;
+}
+.fuse-edge--splice .fuse-edge-cap {
+  fill: var(--color-accent) !important;
+}
+
+@keyframes fuse-dash-scroll {
+  from {
+    stroke-dashoffset: 20;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Disabled edge (muted, dashed, no pulse) */
+.fuse-edge--disabled {
+  opacity: 0.38;
+}
+.fuse-edge--disabled .react-flow__edge-path {
+  stroke: #454552 !important;
+  stroke-dasharray: 4 4 !important;
+}
+.fuse-edge--disabled .fuse-edge-pulse {
+  animation: none !important;
+  opacity: 0 !important;
+}
+.fuse-edge--disabled .fuse-edge-cap {
+  fill: #353540 !important;
+}
+
+/* Slicer Overlay */
+.slicer-dotted-line {
+  stroke: #ff3b69;
+  stroke-width: 2;
+  stroke-dasharray: 5 4;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px rgba(255, 59, 105, 0.45));
+  pointer-events: none;
+}
+.slicer-anchor-circle {
+  fill: #18181b;
+  stroke: #ff3b69;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 6px rgba(255, 59, 105, 0.5));
+  pointer-events: none;
+}
+.slicer-reticle {
+  fill: rgba(255, 59, 105, 0.12);
+  stroke: #ff3b69;
+  stroke-width: 1.5;
+  stroke-dasharray: 3 2;
+  pointer-events: none;
+}
+
+/* Animated Bypass Wire inside disabled nodes */
+.fuse-bypass-base-wire {
+  fill: none;
+  stroke: #3a3a44;
+  stroke-width: 1.75;
+  stroke-dasharray: 4 4;
+}
+
+.fuse-bypass-pulse {
+  fill: none;
+  stroke: color-mix(in oklab, var(--color-accent) 85%, white);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 0.22 0.78;
+  opacity: 0.85;
+  pointer-events: none;
+  animation: fuse-travel 2.5s linear infinite;
+  filter: drop-shadow(0 0 5px color-mix(in oklab, var(--color-accent) 70%, transparent));
+}
+
+.fuse-bypass-cap {
+  fill: var(--color-accent);
+  pointer-events: none;
+  filter: drop-shadow(0 0 4px var(--color-accent));
+}
+
+/* Slicing mode cursor enforcement */
+body.slicing-active,
+body.slicing-active *,
+body.slicing-active .react-flow__pane,
+body.slicing-active .react-flow__node,
+body.slicing-active .react-flow__edge,
+body.slicing-active .react-flow__handle {
+  cursor: crosshair !important;
+  user-select: none !important;
 }
 
 /* The cut button that appears on a hovered or selected wire. */

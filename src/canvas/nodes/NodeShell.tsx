@@ -1,7 +1,8 @@
 import { useState, type ReactNode } from "react";
 import { Handle } from "@xyflow/react";
-import { Eject, Folder, Frame as FrameIcon, Play, X } from "lucide-react";
+import { Eject, Folder, Frame as FrameIcon, Play, Power, X } from "lucide-react";
 import { PORTS } from "@/canvas/ports";
+import { NodeBypassWire } from "./NodeBypassWire";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useRuntimeStore } from "@/store/runtimeStore";
 import { StatusBadge } from "@/components/ui/StatusDot";
@@ -22,11 +23,9 @@ import {
 } from "@/types/workflow";
 
 /**
- * The card every block that isn't a plain command is drawn in.
+ * Common card chrome for all the non-command blocks.
  *
- * Kind, icon and accent all come from the catalogue, so a block looks the same
- * here as it does in the picker that created it. Everything a block needs
- * regardless of kind — rename, eject, run, folder, status, ports — lives here;
+ * Command has its own card because of the terminal view and resize handle;
  * each kind supplies only its own body.
  */
 export function NodeShell({
@@ -39,6 +38,7 @@ export function NodeShell({
   workingDir,
   runnable = true,
   ports,
+  disabled: disabledProp,
   children,
 }: {
   id: string;
@@ -52,6 +52,7 @@ export function NodeShell({
   runnable?: boolean;
   /** Custom connection ports, for kinds that have more than one way out. */
   ports?: ReactNode;
+  disabled?: boolean;
   children: ReactNode;
 }) {
   const entry = catalogEntry(kind);
@@ -61,6 +62,10 @@ export function NodeShell({
   const meta = useRuntimeStore((s) => s.meta[id]);
   const runActive = useRuntimeStore((s) => s.running);
   const beginEdit = useWorkflowStore((s) => s.beginEdit);
+  const nodeDisabled = useWorkflowStore(
+    (s) => !!(s.nodes.find((n) => n.id === id)?.data as any)?.disabled,
+  );
+  const disabled = disabledProp ?? nodeDisabled;
 
   const frame = useWorkflowStore((s) =>
     frameId ? s.nodes.find((n) => n.id === frameId && isFrameNode(n)) : undefined,
@@ -82,18 +87,22 @@ export function NodeShell({
       <div
         className={cn(
           "fuse-card relative overflow-hidden rounded-node border bg-base",
-          "transition-[border-color,box-shadow] duration-150 ease-out",
+          "transition-[border-color,box-shadow,opacity,filter] duration-150 ease-out",
           "border-line",
           status === "skipped" && "opacity-55",
           status === "running" && "running-sheen border-accent/70",
           status === "success" && "border-success/35",
           status === "failed" && "border-danger/55",
           status === "cancelled" && "border-warn/45",
+          disabled && "opacity-50 grayscale brightness-90 border-dashed border-line/60",
           // The one card holding everything up should be impossible to miss.
           waiting && "waiting-glow border-warn",
           selected && "border-accent shadow-[0_0_0_1px_var(--color-accent)]",
         )}
       >
+        {/* Animated Dynamic Bypass Line connecting actual entry/exit anchors */}
+        <NodeBypassWire nodeId={id} disabled={disabled} />
+
         <div
           className={cn(
             "flex h-[30px] items-center gap-1.5 border-b border-line/70 px-2.5",
@@ -130,11 +139,22 @@ export function NodeShell({
             </span>
           )}
 
-          <span className="shrink-0 text-[9.5px] tracking-wide text-fg-subtle uppercase">
-            {entry.label}
-          </span>
+          {disabled && (
+            <button
+              type="button"
+              title="Step is disabled and bypassed during runs. Click to re-enable."
+              onClick={(e) => {
+                e.stopPropagation();
+                useWorkflowStore.getState().toggleNodeDisabled(id);
+              }}
+              className="nodrag flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-2.5 py-0.5 text-[9.5px] font-bold text-white shadow-[0_0_10px_rgba(91,108,255,0.6)] hover:bg-accent/90 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+            >
+              <Power size={9} strokeWidth={2.8} />
+              <span>Enable</span>
+            </button>
+          )}
 
-          {frameId && (
+          {frameId && !disabled && (
             <HeaderButton
               label={frame ? `Take out of “${frame.data.label}”` : "Take out of frame"}
               onClick={() => releaseBlockFromFrame(id)}
@@ -341,7 +361,7 @@ export function TextField({
 export function CodeArea({
   value,
   placeholder,
-  rows = 4,
+  rows = 2,
   onChange,
   onCommit,
 }: {
@@ -363,9 +383,9 @@ export function CodeArea({
       onChange={(e) => onChange(e.currentTarget.value)}
       onKeyDown={(e) => fieldKeys(e, true)}
       className={cn(
-        "nodrag nowheel max-h-[220px] w-full resize-none rounded-[5px] border border-line",
-        "bg-elevated/50 px-1.5 py-1 font-mono text-[11px] leading-[16px] text-fg outline-none",
-        "focus:border-accent placeholder:text-fg-subtle/70",
+        "nodrag nowheel max-h-[220px] w-full resize-none bg-transparent",
+        "px-0 py-0.5 font-mono text-[11.5px] leading-[17px] text-fg outline-none",
+        "placeholder:text-fg-subtle/60 border-none shadow-none focus:ring-0",
       )}
     />
   );

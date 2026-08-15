@@ -35,6 +35,8 @@ export type UIState = {
   settingsOpen: boolean;
   /** Frame a dragged block would join if dropped now, so it can light up. */
   dropFrameId: string | null;
+  /** Edge a dragged block would splice into if dropped now, so it can light up. */
+  dropEdgeId: string | null;
   /** A run waiting on values for the {{placeholders}} in its commands. */
   inputRequest: InputRequest | null;
   /** Set right after a block is created so the canvas can focus its input. */
@@ -48,6 +50,7 @@ export type UIState = {
   leftSidebarOpen: boolean;
   rightSidebarOpen: boolean;
   availableUpdate: string | null;
+  minimapOpen: boolean;
 
   inspect: (nodeId: string | null, options?: { open?: boolean; manual?: boolean }) => void;
   setFollowRun: (follow: boolean) => void;
@@ -55,11 +58,14 @@ export type UIState = {
   toggleOutput: () => void;
   toggleLeftSidebar: () => void;
   toggleRightSidebar: () => void;
+  toggleMinimap: () => void;
+  setMinimapOpen: (open: boolean) => void;
   setPaletteOpen: (open: boolean) => void;
   setDocsOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setRenameOpen: (open: boolean) => void;
   setDropFrame: (frameId: string | null) => void;
+  setDropEdge: (edgeId: string | null) => void;
   setAvailableUpdate: (version: string | null) => void;
   /** Resolves with the entered values, or `null` if the run was called off. */
   askForInputs: (fields: string[], blocks: InputPreviewBlock[]) => Promise<InputValues | null>;
@@ -81,6 +87,7 @@ export const useUIStore = create<UIState>()((set) => ({
   settingsOpen: false,
   renameOpen: false,
   dropFrameId: null,
+  dropEdgeId: null,
   inputRequest: null,
   pendingFocusId: null,
   followRun: true,
@@ -89,6 +96,7 @@ export const useUIStore = create<UIState>()((set) => ({
   leftSidebarOpen: true,
   rightSidebarOpen: false,
   availableUpdate: null,
+  minimapOpen: true,
 
   inspect: (nodeId, options) =>
     set((state) => ({
@@ -105,6 +113,8 @@ export const useUIStore = create<UIState>()((set) => ({
   
   toggleLeftSidebar: () => set((s) => ({ leftSidebarOpen: !s.leftSidebarOpen })),
   toggleRightSidebar: () => set((s) => ({ rightSidebarOpen: !s.rightSidebarOpen })),
+  toggleMinimap: () => set((s) => ({ minimapOpen: !s.minimapOpen })),
+  setMinimapOpen: (open) => set({ minimapOpen: open }),
   setPaletteOpen: (open) => set({ paletteOpen: open }),
   setDocsOpen: (open) => set({ docsOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
@@ -113,6 +123,9 @@ export const useUIStore = create<UIState>()((set) => ({
 
   setDropFrame: (frameId) =>
     set((state) => (state.dropFrameId === frameId ? state : { dropFrameId: frameId })),
+
+  setDropEdge: (edgeId) =>
+    set((state) => (state.dropEdgeId === edgeId ? state : { dropEdgeId: edgeId })),
 
   askForInputs: (fields, blocks) =>
     new Promise<InputValues | null>((resolve) => {

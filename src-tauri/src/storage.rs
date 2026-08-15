@@ -151,6 +151,7 @@ mod tests {
             nodes: vec![WorkflowNode {
                 id: "n1".into(),
                 position: Position { x: 0.0, y: 0.0 },
+                disabled: None,
                 payload: NodePayload::Command(CommandData {
                     command: "git status".into(),
                     ..Default::default()
