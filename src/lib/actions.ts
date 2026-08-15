@@ -362,6 +362,98 @@ export function clearWorkingDirectory(): void {
 
 // --- Execution ------------------------------------------------------------
 
+function isNodeEffectivelyDisabled(node: PersistedNode, doc: WorkflowDocument): boolean {
+  if (node.data && "disabled" in node.data && node.data.disabled) return true;
+
+  const nodeFid = node.data && "frameId" in node.data ? (node.data.frameId as string) : null;
+
+  // Check incoming edges
+  const inEdges = doc.edges.filter(
+    (e) => e.target === node.id || (nodeFid && e.target === nodeFid),
+  );
+  if (inEdges.length > 0 && inEdges.every((e) => e.disabled)) {
+    return true;
+  }
+
+  // Check outgoing edges
+  const outEdges = doc.edges.filter(
+    (e) => e.source === node.id || (nodeFid && e.source === nodeFid),
+  );
+  if (outEdges.length > 0 && outEdges.every((e) => e.disabled)) {
+    return true;
+  }
+
+  return false;
+}
+
+function isVariableProvidedUpstream(
+  varName: string,
+  targetNode: PersistedNode,
+  doc: WorkflowDocument,
+): boolean {
+  // Find all active candidate producer nodes for this variable
+  const producers = doc.nodes.filter((n) => {
+    if (isNodeEffectivelyDisabled(n, doc)) return false;
+    if (n.id === targetNode.id) return false;
+
+    if (
+      n.type === "input" ||
+      n.type === "capture" ||
+      n.type === "read_file" ||
+      n.type === "set_variable" ||
+      n.type === "ai_commit"
+    ) {
+      return (n.data as { variable: string }).variable.trim() === varName;
+    }
+    if (n.type === "bump_version") {
+      return (n.data as { variableOut: string }).variableOut.trim() === varName;
+    }
+    return false;
+  });
+
+  if (producers.length === 0) return false;
+
+  // Traverse active upstream edges from targetNode
+  const activeEdges = doc.edges.filter((e) => !e.disabled);
+  const upstreamIds = new Set<string>();
+  const queue = [targetNode.id];
+  const targetFid =
+    targetNode.data && "frameId" in targetNode.data ? (targetNode.data.frameId as string) : null;
+  if (targetFid) queue.push(targetFid);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    for (const edge of activeEdges) {
+      if (edge.target === current) {
+        if (!upstreamIds.has(edge.source)) {
+          upstreamIds.add(edge.source);
+          queue.push(edge.source);
+
+          // If source is a frame, also add all its member blocks
+          for (const member of doc.nodes) {
+            if (member.data && "frameId" in member.data && member.data.frameId === edge.source) {
+              if (!upstreamIds.has(member.id)) {
+                upstreamIds.add(member.id);
+                queue.push(member.id);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Is any active producer in the upstream chain?
+  return producers.some(
+    (p) =>
+      upstreamIds.has(p.id) ||
+      (p.data &&
+        "frameId" in p.data &&
+        p.data.frameId &&
+        upstreamIds.has(p.data.frameId as string)),
+  );
+}
+
 /**
  * Ask for any `{{placeholder}}` values the run needs and substitute them in.
  *
@@ -376,27 +468,15 @@ async function withRunInputs(
   const targets = doc.nodes.filter(
     (n) => n.type !== "frame" && (!targetIds || targetIds.includes(n.id)),
   );
-  // Anything an ask or capture step will produce during the run is not asked
-  // for now — deciding it up front would defeat the point of those steps.
-  const filledLater = new Set(
-    doc.nodes
-      .map((n) => {
-        if (n.type === "input" || n.type === "capture" || n.type === "read_file" || n.type === "set_variable" || n.type === "ai_commit") {
-          return (n.data as { variable: string }).variable.trim();
-        }
-        if (n.type === "bump_version") {
-          return (n.data as { variableOut: string }).variableOut.trim();
-        }
-        return "";
-      })
-      .filter(Boolean),
-  );
 
   const fields: string[] = [];
   for (const node of targets) {
     for (const text of placeholderFields(node)) {
       for (const name of placeholdersIn(text)) {
-        if (!filledLater.has(name) && !fields.includes(name)) fields.push(name);
+        const provided = isVariableProvidedUpstream(name, node, doc);
+        if (!provided && !fields.includes(name)) {
+          fields.push(name);
+        }
       }
     }
   }
@@ -489,7 +569,7 @@ function filledNode(node: PersistedNode, values: InputValues): PersistedNode {
   }
 }
 
-export async function runCurrentWorkflow(): Promise<void> {
+export async function runCurrentWorkflow(mode?: import("@/types/workflow").RunMode): Promise<void> {
   const workflow = useWorkflowStore.getState();
   const runtime = useRuntimeStore.getState();
   const ui = useUIStore.getState();
@@ -505,11 +585,11 @@ export async function runCurrentWorkflow(): Promise<void> {
   if (!doc) return;
 
   // Optimistic: closes the window where a double ⌘↵ could start two runs.
-  useRuntimeStore.setState({ running: true, error: null });
+  useRuntimeStore.setState({ running: true, error: null, runMode: mode ?? "live" });
   ui.setOutputOpen(true);
 
   try {
-    await api.runWorkflow(doc);
+    await api.runWorkflow(doc, mode);
   } catch (error) {
     useRuntimeStore.getState().abortLocalRun();
     ui.notify(message(error), "error");
@@ -521,7 +601,7 @@ export async function runCurrentWorkflow(): Promise<void> {
  * itself (which is what supplies the directory). Anything outside is not
  * part of this run, which is the whole reason the button lives on the frame.
  */
-export async function runFrame(frameId: string): Promise<void> {
+export async function runFrame(frameId: string, mode?: import("@/types/workflow").RunMode): Promise<void> {
   const workflow = useWorkflowStore.getState();
   const runtime = useRuntimeStore.getState();
   const ui = useUIStore.getState();
@@ -530,73 +610,132 @@ export async function runFrame(frameId: string): Promise<void> {
 
   const doc = workflow.toDocument();
 
-  const reachableFrames = new Set<string>([frameId]);
+  // 1. Start with the source frame and all member blocks inside it
+  const reachableNodeIds = new Set<string>([frameId]);
+  for (const node of doc.nodes) {
+    if (node.data && "frameId" in node.data && node.data.frameId === frameId) {
+      reachableNodeIds.add(node.id);
+    }
+  }
+
+  // 2. Traverse all reachable downstream elements (intermediate confirm/choice nodes,
+  // downstream frames, and their member blocks) across active edges
   let added = true;
   while (added) {
     added = false;
     for (const edge of doc.edges) {
-      if (reachableFrames.has(edge.source) && !reachableFrames.has(edge.target)) {
-        const targetNode = doc.nodes.find((n) => n.id === edge.target);
-        if (targetNode?.type === "frame") {
-          reachableFrames.add(edge.target);
+      if (edge.disabled) continue;
+
+      if (reachableNodeIds.has(edge.source)) {
+        if (!reachableNodeIds.has(edge.target)) {
+          reachableNodeIds.add(edge.target);
+          added = true;
+
+          const targetNode = doc.nodes.find((n) => n.id === edge.target);
+          // If the target is a frame, bring in all its member blocks
+          if (targetNode?.type === "frame") {
+            for (const member of doc.nodes) {
+              if (member.data && "frameId" in member.data && member.data.frameId === edge.target) {
+                if (!reachableNodeIds.has(member.id)) {
+                  reachableNodeIds.add(member.id);
+                  added = true;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // If a member block was reached, also include its parent frame for context/folder inheritance
+      const memberNode = doc.nodes.find((n) => n.id === edge.target);
+      if (memberNode?.data && "frameId" in memberNode.data && memberNode.data.frameId) {
+        const parentFid = memberNode.data.frameId as string;
+        if (!reachableNodeIds.has(parentFid)) {
+          reachableNodeIds.add(parentFid);
           added = true;
         }
       }
     }
   }
 
-  const members = doc.nodes.filter(
-    (n) => n.type !== "frame" && n.data.frameId && reachableFrames.has(n.data.frameId),
-  );
+  const includedNodes = doc.nodes.filter((n) => reachableNodeIds.has(n.id));
+  const stepNodes = includedNodes.filter((n) => n.type !== "frame" && n.type !== "note");
 
-  if (members.length === 0) {
+  if (stepNodes.length === 0) {
     ui.notify("No blocks to run in this frame sequence", "error");
     return;
   }
 
-  const memberIds = new Set(members.map((n) => n.id));
-  const frames = doc.nodes.filter((n) => reachableFrames.has(n.id));
-  const includedIds = new Set([...memberIds, ...reachableFrames]);
+  const includedNodeIds = new Set(includedNodes.map((n) => n.id));
+  const includedEdges = doc.edges.filter(
+    (e) => includedNodeIds.has(e.source) && includedNodeIds.has(e.target) && !e.disabled,
+  );
 
   const scoped = await withRunInputs(
     {
       ...doc,
-      nodes: [...frames, ...members],
-      edges: doc.edges.filter((e) => includedIds.has(e.source) && includedIds.has(e.target)),
+      nodes: includedNodes,
+      edges: includedEdges,
     },
-    [...memberIds],
+    stepNodes.map((n) => n.id),
   );
   if (!scoped) return;
 
-  useRuntimeStore.setState({ running: true, error: null });
+  useRuntimeStore.setState({ running: true, error: null, runMode: mode ?? "live" });
   ui.setOutputOpen(true);
 
   try {
-    await api.runWorkflow(scoped);
+    await api.runWorkflow(scoped, mode);
   } catch (error) {
     useRuntimeStore.getState().abortLocalRun();
     ui.notify(message(error), "error");
   }
 }
 
-export async function runSingleNode(nodeId: string): Promise<void> {
+export async function runSingleNode(nodeId: string, mode?: import("@/types/workflow").RunMode): Promise<void> {
   const workflow = useWorkflowStore.getState();
   const runtime = useRuntimeStore.getState();
   const ui = useUIStore.getState();
 
   if (runtime.running) return;
 
+  const targetNode = workflow.nodes.find((n) => n.id === nodeId);
+  if (targetNode && (targetNode.data as any)?.disabled) {
+    ui.notify("Cannot run a disabled step. Click Enable to turn it on.", "error");
+    return;
+  }
+
   const doc = await withRunInputs(workflow.toDocument(), [nodeId]);
   if (!doc) return;
 
-  useRuntimeStore.setState({ running: true, error: null });
+  useRuntimeStore.setState({ running: true, error: null, runMode: mode ?? "live" });
   ui.inspect(nodeId, { open: true });
 
   try {
-    await api.runNode(doc, nodeId);
+    await api.runNode(doc, nodeId, mode);
   } catch (error) {
     useRuntimeStore.getState().abortLocalRun();
     ui.notify(message(error), "error");
+  }
+}
+
+export async function applySandboxChangesAction(runId: string): Promise<void> {
+  try {
+    await api.applySandboxChanges(runId);
+    useRuntimeStore.getState().clearSandbox();
+    useUIStore.getState().notify("Sandbox changes applied to repository!");
+  } catch (error) {
+    useUIStore.getState().notify(message(error), "error");
+  }
+}
+
+export async function discardSandboxAction(runId: string): Promise<void> {
+  try {
+    await api.discardSandbox(runId);
+    useRuntimeStore.getState().clearSandbox();
+    useUIStore.getState().notify("Sandbox discarded.");
+  } catch (error) {
+    useUIStore.getState().notify(message(error), "error");
   }
 }
 

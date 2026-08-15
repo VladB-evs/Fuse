@@ -377,8 +377,16 @@ export type PromptReply =
   | { reply: "value"; value: string }
   | { reply: "cancelled" };
 
+export type RunMode = "live" | "sandbox" | "dry_run";
+
+export type SandboxFileDiff = {
+  path: string;
+  status: "added" | "modified" | "deleted";
+  diff?: string | null;
+};
+
 export type EngineEvent =
-  | { event: "runStarted"; runId: string; order: string[]; at: number }
+  | { event: "runStarted"; runId: string; order: string[]; runMode?: RunMode; at: number }
   | {
       event: "nodeStarted";
       runId: string;
@@ -417,6 +425,9 @@ export type EngineEvent =
       runId: string;
       status: RunStatus;
       durationMs: number;
+      runMode?: RunMode;
+      sandboxDir?: string | null;
+      diff?: SandboxFileDiff[] | null;
       at: number;
     };
 

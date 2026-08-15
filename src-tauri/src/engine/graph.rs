@@ -6,7 +6,7 @@
 //! the order this produces and consults `dependencies_of` for gating.
 
 use crate::model::{Workflow, WorkflowNode};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, thiserror::Error)]
 pub enum GraphError {
@@ -21,6 +21,8 @@ pub enum GraphError {
 pub struct Dag {
     order: Vec<String>,
     dependencies: HashMap<String, Vec<String>>,
+    disabled_incoming: HashSet<String>,
+    disabled_outgoing: HashSet<String>,
 }
 
 impl Dag {
@@ -38,130 +40,152 @@ impl Dag {
             .unwrap_or(&[])
     }
 
+    /// All transitive upstream dependencies of `id` in the active graph.
+    pub fn transitive_dependencies_of(&self, id: &str) -> HashSet<String> {
+        let mut result = HashSet::new();
+        let mut queue = vec![id.to_string()];
+        while let Some(curr) = queue.pop() {
+            for dep in self.dependencies_of(&curr) {
+                if result.insert(dep.clone()) {
+                    queue.push(dep.clone());
+                }
+            }
+        }
+        result
+    }
+
+    /// True if the node has incoming connections in the workflow, but all of them are disabled.
+    pub fn is_disabled_incoming(&self, id: &str) -> bool {
+        self.disabled_incoming.contains(id)
+    }
+
+    /// True if the node has outgoing connections in the workflow, but all of them are disabled.
+    pub fn is_disabled_outgoing(&self, id: &str) -> bool {
+        self.disabled_outgoing.contains(id)
+    }
+
     /// Builds a DAG from a workflow document.
     pub fn build(workflow: &Workflow) -> Result<Self, GraphError> {
-        // Frames are scenery — they group blocks and set a directory, but they
-        // never execute, so they stay out of the graph entirely. Every other
-        // kind is a step, whether it runs a command or asks a question.
-        let runnable: Vec<&WorkflowNode> = workflow
+        // Frames and Notes are scenery — they group blocks or provide notes, but they
+        // never execute. Every other kind is a step in the DAG.
+        let step_nodes: Vec<&WorkflowNode> = workflow
             .nodes
             .iter()
-            .filter(|n| n.is_runnable())
+            .filter(|n| !n.is_frame() && !n.is_note())
             .collect();
 
-        if runnable.is_empty() {
+        if step_nodes.is_empty() {
             return Err(GraphError::Empty);
         }
 
-        let ids: HashSet<&str> = runnable.iter().map(|n| n.id.as_str()).collect();
+        let ids: HashSet<&str> = step_nodes.iter().map(|n| n.id.as_str()).collect();
         let known: HashSet<&str> = workflow.nodes.iter().map(|n| n.id.as_str()).collect();
 
-        let mut dependencies: HashMap<String, Vec<String>> = HashMap::new();
-        let mut dependents: HashMap<String, Vec<String>> = HashMap::new();
-        let mut indegree: HashMap<String, usize> = HashMap::new();
-
-        for node in &runnable {
-            dependencies.entry(node.id.clone()).or_default();
-            dependents.entry(node.id.clone()).or_default();
-            indegree.entry(node.id.clone()).or_insert(0);
-        }
-
         let mut frame_children: HashMap<&str, Vec<&str>> = HashMap::new();
-        for node in &runnable {
+        for node in &step_nodes {
             if let Some(fid) = node.frame_id() {
                 frame_children.entry(fid).or_default().push(node.id.as_str());
             }
         }
 
-        // Build active outgoing adjacency map for all nodes
-        let mut outgoing: HashMap<&str, Vec<&str>> = HashMap::new();
+        let expand_target = |target: &str| -> Vec<&str> {
+            if let Some(&id_ref) = ids.get(target) {
+                vec![id_ref]
+            } else if let Some(children) = frame_children.get(target) {
+                children.clone()
+            } else {
+                vec![]
+            }
+        };
 
         for edge in &workflow.edges {
-            if edge.disabled == Some(true) {
-                continue;
-            }
             if !known.contains(edge.source.as_str()) {
                 return Err(GraphError::DanglingEdge(edge.source.clone()));
             }
             if !known.contains(edge.target.as_str()) {
                 return Err(GraphError::DanglingEdge(edge.target.clone()));
             }
-
-            outgoing
-                .entry(edge.source.as_str())
-                .or_default()
-                .push(edge.target.as_str());
         }
 
-        // Helper to resolve runnable targets through zero or more disabled nodes
-        let resolve_runnable_targets = |start: &str| -> Vec<String> {
-            let mut result = Vec::new();
-            let mut visited = HashSet::new();
-            let mut queue = VecDeque::new();
+        // Track incoming and outgoing edges per node: total vs active (non-disabled)
+        let mut total_incoming: HashMap<&str, usize> = HashMap::new();
+        let mut active_incoming: HashMap<&str, usize> = HashMap::new();
+        let mut total_outgoing: HashMap<&str, usize> = HashMap::new();
+        let mut active_outgoing: HashMap<&str, usize> = HashMap::new();
 
-            queue.push_back(start);
-            visited.insert(start);
-
-            while let Some(curr) = queue.pop_front() {
-                if ids.contains(curr) {
-                    result.push(curr.to_string());
-                } else if let Some(children) = frame_children.get(curr) {
-                    for &child in children {
-                        if ids.contains(child) {
-                            result.push(child.to_string());
-                        }
-                    }
-                } else {
-                    // curr is a non-runnable node (e.g. disabled block or empty frame);
-                    // traverse downstream active edges to bypass this node and connect downstream
-                    if let Some(next_nodes) = outgoing.get(curr) {
-                        for &next in next_nodes {
-                            if visited.insert(next) {
-                                queue.push_back(next);
-                            }
-                        }
+        for edge in &workflow.edges {
+            let sources = expand_target(edge.source.as_str());
+            let targets = expand_target(edge.target.as_str());
+            for &s in &sources {
+                if !targets.is_empty() {
+                    *total_outgoing.entry(s).or_insert(0) += 1;
+                    if edge.disabled != Some(true) {
+                        *active_outgoing.entry(s).or_insert(0) += 1;
                     }
                 }
             }
-            result
-        };
+            for &t in &targets {
+                if !sources.is_empty() {
+                    *total_incoming.entry(t).or_insert(0) += 1;
+                    if edge.disabled != Some(true) {
+                        *active_incoming.entry(t).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+
+        let mut disabled_incoming: HashSet<String> = HashSet::new();
+        let mut disabled_outgoing: HashSet<String> = HashSet::new();
+        for node in &step_nodes {
+            let tot_in = total_incoming.get(node.id.as_str()).copied().unwrap_or(0);
+            let act_in = active_incoming.get(node.id.as_str()).copied().unwrap_or(0);
+            if tot_in > 0 && act_in == 0 {
+                disabled_incoming.insert(node.id.clone());
+            }
+
+            let tot_out = total_outgoing.get(node.id.as_str()).copied().unwrap_or(0);
+            let act_out = active_outgoing.get(node.id.as_str()).copied().unwrap_or(0);
+            if tot_out > 0 && act_out == 0 {
+                disabled_outgoing.insert(node.id.clone());
+            }
+        }
+
+        let mut dependencies: HashMap<String, Vec<String>> = HashMap::new();
+        let mut dependents: HashMap<String, Vec<String>> = HashMap::new();
+        let mut indegree: HashMap<String, usize> = HashMap::new();
+
+        for node in &step_nodes {
+            dependencies.entry(node.id.clone()).or_default();
+            dependents.entry(node.id.clone()).or_default();
+            indegree.entry(node.id.clone()).or_insert(0);
+        }
 
         // De-duplicate parallel edges so indegree accounting stays honest.
-        let mut seen_pairs: HashSet<(&str, String)> = HashSet::new();
+        let mut seen_pairs: HashSet<(&str, &str)> = HashSet::new();
 
         for edge in &workflow.edges {
             if edge.disabled == Some(true) {
                 continue;
             }
 
-            // Expand sources: if source is runnable, it's [source]. If frame, all runnable children.
-            let sources = if ids.contains(edge.source.as_str()) {
-                vec![edge.source.as_str()]
-            } else if let Some(children) = frame_children.get(edge.source.as_str()) {
-                children.clone()
-            } else {
-                // If edge source is a disabled block, we don't start from here because
-                // upstream runnable nodes will traverse forward through this disabled block.
-                vec![]
-            };
-
-            let targets = resolve_runnable_targets(edge.target.as_str());
+            let sources = expand_target(edge.source.as_str());
+            let targets = expand_target(edge.target.as_str());
 
             for &s in &sources {
-                for t in &targets {
-                    if s == t.as_str() {
+                for &t in &targets {
+                    if s == t {
                         return Err(GraphError::Cycle(s.to_string()));
                     }
-                    if seen_pairs.insert((s, t.clone())) {
+                    if seen_pairs.insert((s, t)) {
                         dependencies
-                            .entry(t.clone())
+                            .entry(t.to_string())
                             .or_default()
                             .push(s.to_string());
                         dependents
                             .entry(s.to_string())
                             .or_default()
-                            .push(t.clone());
-                        *indegree.entry(t.clone()).or_insert(0) += 1;
+                            .push(t.to_string());
+                        *indegree.entry(t.to_string()).or_insert(0) += 1;
                     }
                 }
             }
@@ -170,7 +194,7 @@ impl Dag {
         // Kahn's algorithm. Among simultaneously-ready nodes we pick the
         // top-most / left-most on the canvas so runs are reproducible and match
         // what the user sees.
-        let sort_key = build_sort_keys(&runnable);
+        let sort_key = build_sort_keys(&step_nodes);
 
         let mut ready: Vec<String> = indegree
             .iter()
@@ -179,7 +203,7 @@ impl Dag {
             .collect();
         sort_by_key(&mut ready, &sort_key);
 
-        let mut order = Vec::with_capacity(runnable.len());
+        let mut order = Vec::with_capacity(step_nodes.len());
 
         while let Some(next) = ready.first().cloned() {
             ready.remove(0);
@@ -202,8 +226,8 @@ impl Dag {
             }
         }
 
-        if order.len() != runnable.len() {
-            let stuck: Vec<String> = runnable
+        if order.len() != step_nodes.len() {
+            let stuck: Vec<String> = step_nodes
                 .iter()
                 .filter(|n| !order.contains(&n.id))
                 .map(|n| n.title())
@@ -214,6 +238,8 @@ impl Dag {
         Ok(Dag {
             order,
             dependencies,
+            disabled_incoming,
+            disabled_outgoing,
         })
     }
 }
@@ -380,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn disabled_nodes_are_skipped_from_execution() {
+    fn disabled_nodes_remain_in_order_with_natural_dependencies() {
         let mut n2 = node("b", 100.0);
         n2.disabled = Some(true);
         let wf = workflow(
@@ -388,12 +414,13 @@ mod tests {
             vec![edge("a", "b"), edge("b", "c")],
         );
         let dag = Dag::build(&wf).unwrap();
-        assert_eq!(dag.order(), &["a", "c"]);
-        assert_eq!(dag.dependencies_of("c"), &["a"]);
+        assert_eq!(dag.order(), &["a", "b", "c"]);
+        assert_eq!(dag.dependencies_of("b"), &["a"]);
+        assert_eq!(dag.dependencies_of("c"), &["b"]);
     }
 
     #[test]
-    fn disabled_edges_do_not_impose_dependencies() {
+    fn disabled_edges_are_tracked_as_disabled_incoming() {
         let mut e = edge("a", "b");
         e.disabled = Some(true);
         let wf = workflow(
@@ -401,7 +428,52 @@ mod tests {
             vec![e],
         );
         let dag = Dag::build(&wf).unwrap();
-        // Since the edge is disabled, 'b' has no dependencies on 'a'
+        // Since the edge is disabled, 'b' has no active dependencies, but is marked disabled_incoming
         assert_eq!(dag.dependencies_of("b"), &[] as &[String]);
+        assert!(dag.is_disabled_incoming("b"));
+    }
+
+    #[test]
+    fn frame_to_confirm_to_frame_resolves_in_order() {
+        let f1 = frame("f1");
+        let mut b1 = node("b1", 10.0);
+        if let NodePayload::Command(ref mut d) = b1.payload {
+            d.frame_id = Some("f1".into());
+        }
+
+        let confirm = WorkflowNode {
+            id: "confirm".into(),
+            position: Position { x: 0.0, y: 100.0 },
+            disabled: None,
+            payload: NodePayload::Approval(crate::model::ApprovalData::default()),
+        };
+
+        let f2 = frame("f2");
+        let mut b2 = node("b2", 200.0);
+        if let NodePayload::Command(ref mut d) = b2.payload {
+            d.frame_id = Some("f2".into());
+        }
+
+        let wf = workflow(
+            vec![f1, b1, confirm, f2, b2],
+            vec![edge("f1", "confirm"), edge("confirm", "f2")],
+        );
+
+        let dag = Dag::build(&wf).unwrap();
+        assert_eq!(dag.order(), &["b1", "confirm", "b2"]);
+        assert_eq!(dag.dependencies_of("confirm"), &["b1"]);
+        assert_eq!(dag.dependencies_of("b2"), &["confirm"]);
+    }
+
+    #[test]
+    fn disabled_edges_are_tracked_as_disabled_outgoing() {
+        let mut e = edge("a", "b");
+        e.disabled = Some(true);
+        let wf = workflow(
+            vec![node("a", 0.0), node("b", 100.0)],
+            vec![e],
+        );
+        let dag = Dag::build(&wf).unwrap();
+        assert!(dag.is_disabled_outgoing("a"));
     }
 }

@@ -8,7 +8,7 @@
 //! process-group cleanup and line streaming behave exactly as they do for an
 //! ordinary command block.
 
-use super::events::{EngineEvent, EventSink, NodeStatus, OutputStream};
+use super::events::{EngineEvent, EventSink, NodeStatus, OutputStream, RunMode};
 use super::process::{self, CommandSpec, RunControl};
 use crate::model::{AiCommitData, CaptureData, ConditionData, HttpData, ScriptData, WaitData, ReadFileData, WriteFileData, SetVariableData, now_ms};
 use std::path::PathBuf;
@@ -126,6 +126,7 @@ async fn run_line(
     env: Vec<(String, String)>,
     control: &RunControl,
     reporter: &Reporter<'_>,
+    run_mode: RunMode,
     echo: bool,
     collect: bool,
 ) -> Ran {
@@ -138,6 +139,7 @@ async fn run_line(
             env,
         },
         control,
+        run_mode,
         |stream, line| {
             if collect && stream == OutputStream::Stdout {
                 if !stdout.is_empty() {
@@ -204,11 +206,6 @@ fn script_extension(interpreter: &str) -> &'static str {
 }
 
 /// Run a script through the interpreter named on the block.
-///
-/// The script goes to a temp file rather than through `-c`, because the flag
-/// for "here is a program" differs per interpreter (`-c`, `-e`, `-`) and a file
-/// is what all of them agree on. The file is removed afterwards, whatever
-/// happened.
 pub(crate) async fn run_script(
     data: &ScriptData,
     script: String,
@@ -216,6 +213,7 @@ pub(crate) async fn run_script(
     env: Vec<(String, String)>,
     control: &RunControl,
     reporter: &Reporter<'_>,
+    run_mode: RunMode,
 ) -> StepOutcome {
     reporter.started(&working_dir);
 
@@ -227,6 +225,18 @@ pub(crate) async fn run_script(
     if script.trim().is_empty() {
         reporter.err("This script is empty.");
         return StepOutcome::plain(reporter.finished(NodeStatus::Skipped, None));
+    }
+
+    if run_mode == RunMode::DryRun {
+        reporter.out(format!(
+            "📋 [DRY RUN] Would run {} script in {}:",
+            interpreter,
+            process::display_dir(&working_dir)
+        ));
+        for line in script.lines() {
+            reporter.out(format!("  {line}"));
+        }
+        return StepOutcome::plain(reporter.finished(NodeStatus::Success, Some(0)));
     }
 
     let path = std::env::temp_dir().join(format!(
@@ -243,7 +253,7 @@ pub(crate) async fn run_script(
     // The interpreter is *not* quoted as a whole: it may legitimately carry
     // flags ("/usr/bin/env -S deno run"). The path always is.
     let command = format!("{} {}", interpreter, shell_quote(&path.display().to_string()));
-    let ran = run_line(command, working_dir, env, control, reporter, true, false).await;
+    let ran = run_line(command, working_dir, env, control, reporter, run_mode, true, false).await;
 
     let _ = std::fs::remove_file(&path);
 
@@ -251,18 +261,13 @@ pub(crate) async fn run_script(
 }
 
 // --- Condition ------------------------------------------------------------
-
-/// Evaluate a test and report which way the run should go.
-///
-/// The step itself succeeds either way: a false condition is an answer, not a
-/// failure. What it *does* is set the branch — the scheduler skips whatever
-/// hangs off the other port.
 pub(crate) async fn run_condition(
     data: &ConditionData,
     test: String,
     working_dir: PathBuf,
     control: &RunControl,
     reporter: &Reporter<'_>,
+    run_mode: RunMode,
 ) -> StepOutcome {
     reporter.started(&working_dir);
 
@@ -271,8 +276,21 @@ pub(crate) async fn run_condition(
         return StepOutcome::plain(reporter.finished(NodeStatus::Skipped, None));
     }
 
+    if run_mode == RunMode::DryRun {
+        reporter.out(format!("📋 [DRY RUN] Would test condition: {test}"));
+        reporter.out("True (Simulated) — taking the default “Yes” path.".to_string());
+        if !sleep_unless_stopped(0.35, control).await {
+            return StepOutcome::plain(reporter.finished(NodeStatus::Cancelled, None));
+        }
+        return StepOutcome {
+            status: reporter.finished(NodeStatus::Success, Some(0)),
+            value: None,
+            branch: Some(true),
+        };
+    }
+
     reporter.out(format!("$ {test}"));
-    let ran = run_line(test, working_dir, vec![], control, reporter, true, false).await;
+    let ran = run_line(test, working_dir, vec![], control, reporter, run_mode, true, false).await;
 
     if ran.cancelled {
         return StepOutcome::plain(reporter.finished(NodeStatus::Cancelled, ran.exit_code));
@@ -315,6 +333,7 @@ pub(crate) async fn run_capture(
     env: Vec<(String, String)>,
     control: &RunControl,
     reporter: &Reporter<'_>,
+    run_mode: RunMode,
 ) -> StepOutcome {
     reporter.started(&working_dir);
 
@@ -328,8 +347,25 @@ pub(crate) async fn run_capture(
         return StepOutcome::plain(reporter.finished(NodeStatus::Skipped, None));
     }
 
+    if run_mode == RunMode::DryRun {
+        reporter.out(format!(
+            "📋 [DRY RUN] Would capture output of '{}' into variable '{}'",
+            command, variable
+        ));
+        let simulated = format!("[dry-run-value-for-{variable}]");
+        reporter.out(format!("{variable} = {simulated}"));
+        if !sleep_unless_stopped(0.35, control).await {
+            return StepOutcome::plain(reporter.finished(NodeStatus::Cancelled, None));
+        }
+        return StepOutcome {
+            status: reporter.finished(NodeStatus::Success, Some(0)),
+            value: Some((variable, simulated)),
+            branch: None,
+        };
+    }
+
     reporter.out(format!("$ {command}"));
-    let ran = run_line(command, working_dir, env, control, reporter, true, true).await;
+    let ran = run_line(command, working_dir, env, control, reporter, run_mode, true, true).await;
     let status = status_for(&ran);
 
     if status != NodeStatus::Success {
@@ -367,8 +403,20 @@ pub(crate) async fn run_wait(
     working_dir: PathBuf,
     control: &RunControl,
     reporter: &Reporter<'_>,
+    run_mode: RunMode,
 ) -> StepOutcome {
     reporter.started(&working_dir);
+
+    if run_mode == RunMode::DryRun {
+        reporter.out(format!(
+            "📋 [DRY RUN] Would wait (delay: {}s, until: '{}')",
+            data.seconds, until
+        ));
+        if !sleep_unless_stopped(0.35, control).await {
+            return StepOutcome::plain(reporter.finished(NodeStatus::Cancelled, None));
+        }
+        return StepOutcome::plain(reporter.finished(NodeStatus::Success, Some(0)));
+    }
 
     let delay = data.seconds.max(0.0);
     if delay > 0.0 {
@@ -408,6 +456,7 @@ pub(crate) async fn run_wait(
             vec![],
             control,
             reporter,
+            run_mode,
             false,
             false,
         )
@@ -461,6 +510,7 @@ pub(crate) async fn run_http(
     working_dir: PathBuf,
     control: &RunControl,
     reporter: &Reporter<'_>,
+    run_mode: RunMode,
 ) -> StepOutcome {
     reporter.started(&working_dir);
 
@@ -474,6 +524,20 @@ pub(crate) async fn run_http(
     } else {
         data.method.trim().to_uppercase()
     };
+
+    if run_mode == RunMode::DryRun {
+        reporter.out(format!(
+            "📋 [DRY RUN] Would send HTTP {} request to {}",
+            method, url
+        ));
+        if !body.trim().is_empty() {
+            reporter.out(format!("  Body: {body}"));
+        }
+        if !sleep_unless_stopped(0.35, control).await {
+            return StepOutcome::plain(reporter.finished(NodeStatus::Cancelled, None));
+        }
+        return StepOutcome::plain(reporter.finished(NodeStatus::Success, Some(0)));
+    }
 
     let mut command = format!(
         "curl -sS -L -X {} -w {}",
@@ -498,22 +562,20 @@ pub(crate) async fn run_http(
             command.push_str(" -H 'Content-Type: application/json'");
         }
         command.push(' ');
-        command.push_str(&format!("--data-binary {}", shell_quote(&body)));
+        command.push_str(&format!("-d {}", shell_quote(&body)));
     }
 
     command.push(' ');
-    command.push_str(&shell_quote(url.trim()));
+    command.push_str(&shell_quote(&url));
 
-    reporter.out(format!("{method} {}", url.trim()));
-
-    let ran = run_line(command, working_dir, vec![], control, reporter, false, true).await;
+    reporter.out(format!("$ {method} {url}"));
+    let ran = run_line(command, working_dir, vec![], control, reporter, run_mode, false, true).await;
 
     if ran.cancelled {
         return StepOutcome::plain(reporter.finished(NodeStatus::Cancelled, ran.exit_code));
     }
 
-    // Split the trailer off the body, then print the body as output.
-    let mut status_code: Option<u32> = None;
+    let mut status_code: Option<i32> = None;
     let mut elapsed: Option<String> = None;
     let mut response = String::new();
 
@@ -561,7 +623,7 @@ pub(crate) async fn run_http(
     };
 
     StepOutcome {
-        status: reporter.finished(status, ran.exit_code),
+        status: reporter.finished(status, status_code),
         value: if status == NodeStatus::Success { value } else { None },
         branch: None,
     }
@@ -574,6 +636,7 @@ pub(crate) async fn run_read_file(
     path: String,
     working_dir: PathBuf,
     reporter: &Reporter<'_>,
+    run_mode: RunMode,
 ) -> StepOutcome {
     reporter.started(&working_dir);
 
@@ -592,6 +655,18 @@ pub(crate) async fn run_read_file(
     } else {
         working_dir.join(path)
     };
+
+    if run_mode == RunMode::DryRun {
+        reporter.out(format!("📋 [DRY RUN] Would read file: {}", absolute.display()));
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let content = std::fs::read_to_string(&absolute)
+            .unwrap_or_else(|_| format!("[dry-run-content for {}]", absolute.display()));
+        return StepOutcome {
+            status: reporter.finished(NodeStatus::Success, Some(0)),
+            value: Some((data.variable.trim().to_string(), content)),
+            branch: None,
+        };
+    }
 
     match std::fs::read_to_string(&absolute) {
         Ok(content) => {
@@ -619,6 +694,7 @@ pub(crate) async fn run_write_file(
     content: String,
     working_dir: PathBuf,
     reporter: &Reporter<'_>,
+    run_mode: RunMode,
 ) -> StepOutcome {
     reporter.started(&working_dir);
 
@@ -632,6 +708,16 @@ pub(crate) async fn run_write_file(
     } else {
         working_dir.join(path)
     };
+
+    if run_mode == RunMode::DryRun {
+        reporter.out(format!(
+            "📋 [DRY RUN] Would write {} bytes to: {}",
+            content.len(),
+            absolute.display()
+        ));
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        return StepOutcome::plain(reporter.finished(NodeStatus::Success, Some(0)));
+    }
 
     if let Some(parent) = absolute.parent() {
         if !parent.exists() {
@@ -758,12 +844,27 @@ pub(crate) async fn run_ai_commit(
     control: &RunControl,
     working_dir: PathBuf,
     reporter: &Reporter<'_>,
+    run_mode: RunMode,
 ) -> StepOutcome {
     reporter.started(&working_dir);
 
     if data.variable.trim().is_empty() {
         reporter.err("No output variable name provided.");
         return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
+    }
+
+    if run_mode == RunMode::DryRun {
+        reporter.out(format!("📋 [DRY RUN] Would inspect git diff and generate commit message in: {}", process::display_dir(&working_dir)));
+        let simulated = "feat: simulated commit message from dry run".to_string();
+        reporter.out(format!("✨ [DRY RUN] Generated commit message: \"{}\"", simulated));
+        if !sleep_unless_stopped(0.35, control).await {
+            return StepOutcome::plain(reporter.finished(NodeStatus::Cancelled, None));
+        }
+        return StepOutcome {
+            status: reporter.finished_with_value(NodeStatus::Success, Some(0), simulated.clone()),
+            value: Some((data.variable.trim().to_string(), simulated)),
+            branch: None,
+        };
     }
 
     reporter.out(format!("Inspecting repository changes in {}...", process::display_dir(&working_dir)));
@@ -775,6 +876,7 @@ pub(crate) async fn run_ai_commit(
         Vec::new(),
         control,
         reporter,
+        run_mode,
         false,
         true,
     )
@@ -788,6 +890,7 @@ pub(crate) async fn run_ai_commit(
             Vec::new(),
             control,
             reporter,
+            run_mode,
             false,
             true,
         )
@@ -802,6 +905,7 @@ pub(crate) async fn run_ai_commit(
                 Vec::new(),
                 control,
                 reporter,
+                run_mode,
                 false,
                 true,
             )
@@ -819,6 +923,7 @@ pub(crate) async fn run_ai_commit(
         Vec::new(),
         control,
         reporter,
+        run_mode,
         false,
         true,
     )

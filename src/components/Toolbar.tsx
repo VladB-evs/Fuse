@@ -1,16 +1,37 @@
-import { useEffect, useMemo, useState } from "react";
-import { BookOpen, PanelLeft, PanelLeftClose, PanelRight, PanelRightClose, Play, Plus, Square, Settings, FolderOpen, FolderInput, Sparkles } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  BookOpen,
+  ChevronDown,
+  FileSearch,
+  FlaskConical,
+  FolderInput,
+  FolderOpen,
+  PanelLeft,
+  PanelLeftClose,
+  PanelRight,
+  PanelRightClose,
+  Play,
+  Plus,
+  Settings,
+  Square,
+  Zap,
+} from "lucide-react";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useRuntimeStore } from "@/store/runtimeStore";
 import { useUIStore } from "@/store/uiStore";
 import { Button } from "@/components/ui/Button";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { Kbd } from "@/components/ui/Kbd";
-import { openNodePicker, runCurrentWorkflow, stopCurrentRun, importWorkflow, importBlocks } from "@/lib/actions";
-import { looseBlocks } from "@/lib/frames";
+import {
+  importBlocks,
+  importWorkflow,
+  openNodePicker,
+  runCurrentWorkflow,
+  stopCurrentRun,
+} from "@/lib/actions";
 import { cn, formatDuration } from "@/lib/utils";
 import { RUN_STATUS_LABEL, RUN_STATUS_TONE, TONE_TEXT } from "@/lib/status";
-import type { NodeRunState } from "@/types/workflow";
+import type { NodeRunState, RunMode } from "@/types/workflow";
 
 const TERMINAL_STATES: NodeRunState[] = ["success", "failed", "skipped", "cancelled"];
 
@@ -32,21 +53,23 @@ export function Toolbar() {
   const dirty = useWorkflowStore((s) => s.dirty);
   const nodeCount = useWorkflowStore((s) => s.nodes.length);
 
-  // "Run all" only earns its place while something sits outside every frame.
-  // Once every block belongs to a frame, the frames' own buttons say exactly
-  // what will run, and a second button here would only muddy that.
-  const loose = useWorkflowStore((s) => looseBlocks(s.nodes).length);
-  const frames = useWorkflowStore((s) => s.nodes.filter((n) => n.type === "frame").length);
-  const showRunAll = frames === 0 || loose > 0;
+  // Always show the Run button in the top toolbar so the user can easily run
+  // the entire workflow (or all frames) in Live, Sandbox, or Dry Run modes.
+  const showRunAll = true;
 
   const running = useRuntimeStore((s) => s.running);
+  const activeRunMode = useRuntimeStore((s) => s.runMode);
+  const sandboxDiff = useRuntimeStore((s) => s.sandboxDiff);
   const startedAt = useRuntimeStore((s) => s.startedAt);
   const order = useRuntimeStore((s) => s.order);
   const statuses = useRuntimeStore((s) => s.statuses);
   const lastRun = useRuntimeStore((s) => s.lastRun);
 
+  const [selectedMode, setSelectedMode] = useState<RunMode>("live");
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
   const toast = useUIStore((s) => s.toast);
-  const availableUpdate = useUIStore((s) => s.availableUpdate);
   const setPaletteOpen = useUIStore((s) => s.setPaletteOpen);
   const setDocsOpen = useUIStore((s) => s.setDocsOpen);
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
@@ -54,6 +77,7 @@ export function Toolbar() {
   const rightSidebarOpen = useUIStore((s) => s.rightSidebarOpen);
   const toggleLeftSidebar = useUIStore((s) => s.toggleLeftSidebar);
   const toggleRightSidebar = useUIStore((s) => s.toggleRightSidebar);
+  const setOutputOpen = useUIStore((s) => s.setOutputOpen);
 
   const elapsed = useElapsed(startedAt, running);
 
@@ -61,6 +85,18 @@ export function Toolbar() {
     () => order.filter((id) => TERMINAL_STATES.includes(statuses[id] ?? "idle")).length,
     [order, statuses],
   );
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setModeMenuOpen(false);
+      }
+    }
+    if (modeMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [modeMenuOpen]);
 
   return (
     <header
@@ -90,14 +126,28 @@ export function Toolbar() {
         className="flex min-w-0 flex-1 items-center justify-center gap-2"
       >
         {running ? (
-          <span className="flex items-center gap-2 text-[11px] text-fg-muted">
-            <StatusDot status="running" />
-            <span className="tabular-nums">
-              {done} of {order.length}
+          <div className="flex items-center gap-2">
+            {activeRunMode === "sandbox" && (
+              <span className="flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10.5px] font-medium text-amber-400">
+                <FlaskConical size={11} className="animate-pulse" />
+                SANDBOX RUN
+              </span>
+            )}
+            {activeRunMode === "dry_run" && (
+              <span className="flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10.5px] font-medium text-sky-400">
+                <FileSearch size={11} className="animate-pulse" />
+                DRY RUN (SIMULATION)
+              </span>
+            )}
+            <span className="flex items-center gap-2 text-[11px] text-fg-muted">
+              <StatusDot status="running" />
+              <span className="tabular-nums">
+                {done} of {order.length}
+              </span>
+              <span className="text-fg-subtle/60">·</span>
+              <span className="tabular-nums text-fg-subtle">{formatDuration(elapsed)}</span>
             </span>
-            <span className="text-fg-subtle/60">·</span>
-            <span className="tabular-nums text-fg-subtle">{formatDuration(elapsed)}</span>
-          </span>
+          </div>
         ) : toast ? (
           <span
             className={cn(
@@ -108,18 +158,37 @@ export function Toolbar() {
             {toast.text}
           </span>
         ) : lastRun ? (
-          <span
-            className={cn(
-              "animate-in-soft flex items-center gap-2 text-[11px]",
-              TONE_TEXT[RUN_STATUS_TONE[lastRun.status]],
+          <div className="flex items-center gap-2">
+            {activeRunMode === "sandbox" && (
+              <button
+                type="button"
+                onClick={() => setOutputOpen(true)}
+                className="flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10.5px] font-medium text-amber-400 hover:bg-amber-500/20 transition cursor-pointer"
+                title="View Sandbox Changes"
+              >
+                <FlaskConical size={11} />
+                Sandbox {sandboxDiff ? `(${sandboxDiff.length} files)` : "Completed"}
+              </button>
             )}
-          >
-            <StatusDot status={lastRun.status === "cancelled" ? "cancelled" : lastRun.status} />
-            {RUN_STATUS_LABEL[lastRun.status]}
-            <span className="tabular-nums text-fg-subtle">
-              {formatDuration(lastRun.durationMs)}
+            {activeRunMode === "dry_run" && (
+              <span className="flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10.5px] font-medium text-sky-400">
+                <FileSearch size={11} />
+                Dry Run
+              </span>
+            )}
+            <span
+              className={cn(
+                "animate-in-soft flex items-center gap-2 text-[11px]",
+                TONE_TEXT[RUN_STATUS_TONE[lastRun.status]],
+              )}
+            >
+              <StatusDot status={lastRun.status === "cancelled" ? "cancelled" : lastRun.status} />
+              {RUN_STATUS_LABEL[lastRun.status]}
+              <span className="tabular-nums text-fg-subtle">
+                {formatDuration(lastRun.durationMs)}
+              </span>
             </span>
-          </span>
+          </div>
         ) : null}
       </div>
 
@@ -144,19 +213,118 @@ export function Toolbar() {
         </Button>
       ) : (
         showRunAll && (
-          <Button
-            variant="primary"
-            onClick={() => void runCurrentWorkflow()}
-            disabled={nodeCount === 0}
-            title={
-              frames > 0
-                ? `Run every block, including the ${loose} outside any frame  ⌘↵`
-                : "Run workflow  ⌘↵"
-            }
-          >
-            <Play size={10} fill="currentColor" strokeWidth={0} />
-            {frames > 0 ? "Run all" : "Run"}
-          </Button>
+          <div ref={menuRef} className="relative flex items-center">
+            <Button
+              variant="primary"
+              onClick={() => void runCurrentWorkflow(selectedMode)}
+              disabled={nodeCount === 0}
+              className={cn(
+                "rounded-r-none pr-2.5",
+                selectedMode === "sandbox" && "bg-amber-600 hover:bg-amber-500 text-white",
+                selectedMode === "dry_run" && "bg-sky-600 hover:bg-sky-500 text-white",
+              )}
+              title={
+                selectedMode === "sandbox"
+                  ? "Run isolated in Sandbox  ⌘↵"
+                  : selectedMode === "dry_run"
+                    ? "Dry run simulation  ⌘↵"
+                    : "Run workflow  ⌘↵"
+              }
+            >
+              {selectedMode === "sandbox" ? (
+                <FlaskConical size={11} strokeWidth={2} />
+              ) : selectedMode === "dry_run" ? (
+                <FileSearch size={11} strokeWidth={2} />
+              ) : (
+                <Play size={10} fill="currentColor" strokeWidth={0} />
+              )}
+              {selectedMode === "sandbox"
+                ? "Sandbox"
+                : selectedMode === "dry_run"
+                  ? "Dry Run"
+                  : "Run"}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => setModeMenuOpen((prev) => !prev)}
+              disabled={nodeCount === 0}
+              className={cn(
+                "rounded-l-none border-l border-white/20 px-1.5",
+                selectedMode === "sandbox" && "bg-amber-600 hover:bg-amber-500 text-white",
+                selectedMode === "dry_run" && "bg-sky-600 hover:bg-sky-500 text-white",
+              )}
+              title="Select Run Mode"
+            >
+              <ChevronDown size={11} strokeWidth={2} />
+            </Button>
+
+            {modeMenuOpen && (
+              <div className="absolute top-full right-0 z-50 mt-1.5 w-64 rounded-lg border border-line bg-surface/95 p-1 shadow-xl backdrop-blur-md animate-in-soft">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedMode("live");
+                    setModeMenuOpen(false);
+                    void runCurrentWorkflow("live");
+                  }}
+                  className={cn(
+                    "flex w-full items-start gap-2.5 rounded-md p-2 text-left transition hover:bg-hover",
+                    selectedMode === "live" && "bg-hover/80",
+                  )}
+                >
+                  <Zap size={14} className="mt-0.5 shrink-0 text-emerald-400" />
+                  <div className="flex-1">
+                    <div className="text-[12px] font-medium text-fg">⚡ Live Run</div>
+                    <div className="text-[10.5px] text-fg-subtle">
+                      Execute commands directly against your repo.
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedMode("sandbox");
+                    setModeMenuOpen(false);
+                    void runCurrentWorkflow("sandbox");
+                  }}
+                  className={cn(
+                    "flex w-full items-start gap-2.5 rounded-md p-2 text-left transition hover:bg-hover",
+                    selectedMode === "sandbox" && "bg-hover/80",
+                  )}
+                >
+                  <FlaskConical size={14} className="mt-0.5 shrink-0 text-amber-400" />
+                  <div className="flex-1">
+                    <div className="text-[12px] font-medium text-fg">🧪 Sandbox Run</div>
+                    <div className="text-[10.5px] text-fg-subtle">
+                      Isolated git worktree with diff review before applying.
+                    </div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedMode("dry_run");
+                    setModeMenuOpen(false);
+                    void runCurrentWorkflow("dry_run");
+                  }}
+                  className={cn(
+                    "flex w-full items-start gap-2.5 rounded-md p-2 text-left transition hover:bg-hover",
+                    selectedMode === "dry_run" && "bg-hover/80",
+                  )}
+                >
+                  <FileSearch size={14} className="mt-0.5 shrink-0 text-sky-400" />
+                  <div className="flex-1">
+                    <div className="text-[12px] font-medium text-fg">📋 Dry Run (Simulate)</div>
+                    <div className="text-[10.5px] text-fg-subtle">
+                      Zero side effects. Validates flow, branches & placeholders.
+                    </div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
         )
       )}
 
@@ -196,18 +364,6 @@ export function Toolbar() {
       >
         <FolderInput size={15} />
       </button>
-
-      {availableUpdate && (
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(true)}
-          className="flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 text-[11px] font-medium text-emerald-400 hover:bg-emerald-500/25 transition shadow-sm"
-          title={`Update to v${availableUpdate} available — Click to install`}
-        >
-          <Sparkles size={12} className="text-emerald-400 animate-pulse" />
-          <span>Update v{availableUpdate}</span>
-        </button>
-      )}
 
       <button
         type="button"

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FilePlus2, Folder, Pencil, RefreshCw, Workflow, X, Trash2 } from "lucide-react";
+import { FilePlus2, Folder, Pencil, RefreshCw, Sparkles, Trash2, Workflow, X } from "lucide-react";
 import { listWorkflows } from "@/bridge/commands";
 import {
   chooseWorkingDirectory,
@@ -13,6 +13,7 @@ import { confirm } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
 import { cn, prettyPath } from "@/lib/utils";
 import { useWorkflowStore } from "@/store/workflowStore";
+import { useUIStore } from "@/store/uiStore";
 import type { WorkflowSummary } from "@/types/workflow";
 
 function relativeDate(updatedAt: number): string {
@@ -30,6 +31,8 @@ export function WorkflowSidebar() {
   const activeName = useWorkflowStore((s) => s.name);
   const workingDir = useWorkflowStore((s) => s.workingDir);
   const dirty = useWorkflowStore((s) => s.dirty);
+  const availableUpdate = useUIStore((s) => s.availableUpdate);
+  const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -231,6 +234,17 @@ export function WorkflowSidebar() {
             </span>
           </span>
         </button>
+        {availableUpdate && (
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-[6px] border border-emerald-500/30 bg-emerald-500/15 px-2 py-1.5 text-[11px] font-medium text-emerald-400 hover:bg-emerald-500/25 transition shadow-sm cursor-pointer"
+            title={`Update to v${availableUpdate} available — Click to install`}
+          >
+            <Sparkles size={12} className="text-emerald-400 animate-pulse shrink-0" />
+            <span className="truncate">Update to v{availableUpdate}</span>
+          </button>
+        )}
         {appVersion && (
           <div className="mt-2 text-center text-[9px] text-fg-subtle/50">
             v{appVersion}

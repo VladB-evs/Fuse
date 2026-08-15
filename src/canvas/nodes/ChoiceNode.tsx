@@ -24,10 +24,14 @@ function ChoiceNodeImpl({ id, data, selected }: NodeProps<ChoiceNodeType>) {
   const edges = useWorkflowStore((s) => s.edges);
 
   const options = useMemo(() => {
-    const targets = new Set(edges.filter((e) => e.source === id).map((e) => e.target));
+    const targets = new Set(
+      edges
+        .filter((e) => e.source === id && !e.data?.disabled)
+        .map((e) => e.target),
+    );
     return [...targets]
       .map((target) => nodes.find((n) => n.id === target))
-      .filter((n): n is BlockNodeType => !!n && isBlockNode(n))
+      .filter((n): n is BlockNodeType => !!n && isBlockNode(n) && !(n.data as any)?.disabled)
       .map((n) => n.data.label || "Untitled");
   }, [id, nodes, edges]);
 

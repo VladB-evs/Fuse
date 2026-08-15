@@ -63,6 +63,7 @@ pub struct AppState {
     pub store: RwLock<Arc<dyn WorkflowStore>>,
     pub active: Mutex<Option<Arc<RunControl>>>,
     pub prompts: Arc<PromptRegistry>,
+    pub sandboxes: Arc<Mutex<HashMap<String, engine::sandbox::SandboxContext>>>,
     pub app_data_dir: PathBuf,
 }
 
@@ -72,6 +73,7 @@ impl AppState {
             store: RwLock::new(store),
             active: Mutex::new(None),
             prompts: Arc::new(PromptRegistry::default()),
+            sandboxes: Arc::new(Mutex::new(HashMap::new())),
             app_data_dir,
         }
     }
@@ -316,8 +318,9 @@ pub async fn run_workflow(
     app: AppHandle,
     state: State<'_, AppState>,
     workflow: Workflow,
+    run_mode: Option<engine::events::RunMode>,
 ) -> Result<String, String> {
-    begin_run(app, &state, workflow)
+    begin_run(app, &state, workflow, run_mode)
 }
 
 /// Run a single block on its own, ignoring graph dependencies.
@@ -327,11 +330,16 @@ pub async fn run_node(
     state: State<'_, AppState>,
     workflow: Workflow,
     node_id: String,
+    run_mode: Option<engine::events::RunMode>,
 ) -> Result<String, String> {
     let node = workflow
         .node(&node_id)
         .cloned()
         .ok_or_else(|| format!("Block not found: {node_id}"))?;
+
+    if node.is_disabled() {
+        return Err("Cannot run a disabled step. Re-enable it first.".into());
+    }
 
     // Frames come along: they carry the directory this block runs in.
     let mut nodes: Vec<_> = workflow
@@ -348,7 +356,7 @@ pub async fn run_node(
         ..workflow
     };
 
-    begin_run(app, &state, single)
+    begin_run(app, &state, single, run_mode)
 }
 
 #[tauri::command]
@@ -365,7 +373,39 @@ pub fn is_running(state: State<'_, AppState>) -> bool {
     state.active.lock().map(|a| a.is_some()).unwrap_or(false)
 }
 
-fn begin_run(app: AppHandle, state: &AppState, workflow: Workflow) -> Result<String, String> {
+#[tauri::command]
+pub async fn apply_sandbox_changes(
+    state: State<'_, AppState>,
+    run_id: String,
+) -> Result<(), String> {
+    let mut sandboxes = state.sandboxes.lock().map_err(|_| "Failed to lock sandboxes")?;
+    let sandbox = sandboxes
+        .remove(&run_id)
+        .ok_or_else(|| format!("Sandbox for run {run_id} not found"))?;
+    sandbox.apply_changes()?;
+    sandbox.cleanup();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn discard_sandbox(
+    state: State<'_, AppState>,
+    run_id: String,
+) -> Result<(), String> {
+    let mut sandboxes = state.sandboxes.lock().map_err(|_| "Failed to lock sandboxes")?;
+    if let Some(sandbox) = sandboxes.remove(&run_id) {
+        sandbox.cleanup();
+    }
+    Ok(())
+}
+
+fn begin_run(
+    app: AppHandle,
+    state: &AppState,
+    workflow: Workflow,
+    run_mode: Option<engine::events::RunMode>,
+) -> Result<String, String> {
+    let mode = run_mode.unwrap_or(engine::events::RunMode::Live);
     let mut active = state.active.lock().map_err(|_| "Runtime state is locked")?;
 
     if active.is_some() {
@@ -390,9 +430,31 @@ fn begin_run(app: AppHandle, state: &AppState, workflow: Workflow) -> Result<Str
         registry: state.prompts.clone(),
     };
     let id = run_id.clone();
+    let sandboxes = state.sandboxes.clone();
 
     tauri::async_runtime::spawn(async move {
-        let _ = engine::execute_with_prompts(&workflow, &id, &sink, &control, &prompter).await;
+        let _ = engine::execute_with_prompts(
+            &workflow,
+            &id,
+            &sink,
+            &control,
+            &prompter,
+            mode,
+        )
+        .await;
+
+        if mode == engine::events::RunMode::Sandbox {
+            let base_dir = workflow
+                .working_dir
+                .as_deref()
+                .map(engine::process::resolve_dir)
+                .unwrap_or_else(engine::process::home_dir);
+            if let Ok(sb) = engine::sandbox::SandboxContext::create(&base_dir, &id) {
+                if let Ok(mut map) = sandboxes.lock() {
+                    map.insert(id.clone(), sb);
+                }
+            }
+        }
 
         // Free the slot so the next Run works, however this run ended.
         if let Some(state) = state_handle.try_state::<AppState>() {

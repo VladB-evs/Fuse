@@ -2,7 +2,6 @@ import { useState, type ReactNode } from "react";
 import { Handle } from "@xyflow/react";
 import { Eject, Folder, Frame as FrameIcon, Play, Power, X } from "lucide-react";
 import { PORTS } from "@/canvas/ports";
-import { NodeBypassWire } from "./NodeBypassWire";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useRuntimeStore } from "@/store/runtimeStore";
 import { StatusBadge } from "@/components/ui/StatusDot";
@@ -100,9 +99,6 @@ export function NodeShell({
           selected && "border-accent shadow-[0_0_0_1px_var(--color-accent)]",
         )}
       >
-        {/* Animated Dynamic Bypass Line connecting actual entry/exit anchors */}
-        <NodeBypassWire nodeId={id} disabled={disabled} />
-
         <div
           className={cn(
             "flex h-[30px] items-center gap-1.5 border-b border-line/70 px-2.5",
@@ -142,7 +138,7 @@ export function NodeShell({
           {disabled && (
             <button
               type="button"
-              title="Step is disabled and bypassed during runs. Click to re-enable."
+              title="Step is disabled. Click to re-enable."
               onClick={(e) => {
                 e.stopPropagation();
                 useWorkflowStore.getState().toggleNodeDisabled(id);
@@ -166,7 +162,7 @@ export function NodeShell({
           {runnable && (
             <HeaderButton
               label="Run this block"
-              disabled={runActive}
+              disabled={runActive || disabled}
               onClick={() => void runSingleNode(id)}
             >
               <Play size={9} fill="currentColor" strokeWidth={0} />

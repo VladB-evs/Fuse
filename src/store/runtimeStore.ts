@@ -15,7 +15,9 @@ import type {
   NodeRunState,
   OutputLine,
   PromptRequest,
+  RunMode,
   RunStatus,
+  SandboxFileDiff,
 } from "@/types/workflow";
 import { useWorkflowStore } from "./workflowStore";
 
@@ -34,6 +36,9 @@ const emptyMeta = (): NodeRunMeta => ({
 export type RuntimeState = {
   runId: string | null;
   running: boolean;
+  runMode: RunMode;
+  sandboxDir: string | null;
+  sandboxDiff: SandboxFileDiff[] | null;
   startedAt: number | null;
   order: string[];
   statuses: Record<string, NodeRunState>;
@@ -55,11 +60,15 @@ export type RuntimeState = {
   clearPrompt: () => void;
   /** Local-only reset used when a run fails to start. */
   abortLocalRun: () => void;
+  clearSandbox: () => void;
 };
 
 export const useRuntimeStore = create<RuntimeState>()((set) => ({
   runId: null,
   running: false,
+  runMode: "live",
+  sandboxDir: null,
+  sandboxDiff: null,
   startedAt: null,
   order: [],
   statuses: {},
@@ -71,7 +80,7 @@ export const useRuntimeStore = create<RuntimeState>()((set) => ({
 
   applyEvents: (events) =>
     set((state) => {
-      let { runId, running, startedAt, order, lastRun, error, prompt } = state;
+      let { runId, running, runMode, sandboxDir, sandboxDiff, startedAt, order, lastRun, error, prompt } = state;
       const statuses = { ...state.statuses };
       const meta = { ...state.meta };
       const output = { ...state.output };
@@ -96,6 +105,9 @@ export const useRuntimeStore = create<RuntimeState>()((set) => ({
           case "runStarted": {
             runId = event.runId;
             running = true;
+            runMode = event.runMode ?? "live";
+            sandboxDir = null;
+            sandboxDiff = null;
             startedAt = event.at;
             order = event.order;
             error = null;
@@ -174,6 +186,9 @@ export const useRuntimeStore = create<RuntimeState>()((set) => ({
           case "runFinished": {
             running = false;
             prompt = null;
+            if (event.runMode) runMode = event.runMode;
+            sandboxDir = event.sandboxDir ?? null;
+            sandboxDiff = event.diff ?? null;
             lastRun = { status: event.status, durationMs: event.durationMs, at: event.at };
             break;
           }
@@ -183,6 +198,9 @@ export const useRuntimeStore = create<RuntimeState>()((set) => ({
       return {
         runId,
         running,
+        runMode,
+        sandboxDir,
+        sandboxDiff,
         startedAt,
         order,
         statuses,
@@ -211,6 +229,8 @@ export const useRuntimeStore = create<RuntimeState>()((set) => ({
       order: [],
       startedAt: null,
       prompt: null,
+      sandboxDir: null,
+      sandboxDiff: null,
     }),
 
   setError: (message) => set({ error: message }),
@@ -219,6 +239,9 @@ export const useRuntimeStore = create<RuntimeState>()((set) => ({
 
   abortLocalRun: () =>
     set({ running: false, runId: null, startedAt: null, prompt: null }),
+
+  clearSandbox: () =>
+    set({ sandboxDir: null, sandboxDiff: null }),
 }));
 
 /** Convenience selector: has this node produced any output yet? */

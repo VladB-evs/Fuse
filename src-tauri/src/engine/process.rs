@@ -170,16 +170,95 @@ fn login_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
 }
 
+use super::events::RunMode;
+
+fn is_destructive_network_cmd(cmd: &str) -> bool {
+    let lower = cmd.to_lowercase();
+    let parts: Vec<&str> = lower.split_whitespace().collect();
+    if parts.is_empty() {
+        return false;
+    }
+    // git push ...
+    if parts.len() >= 2 && parts[0] == "git" && parts[1] == "push" {
+        return true;
+    }
+    // npm publish, yarn publish, pnpm publish, bun publish
+    if parts.len() >= 2
+        && (parts[0] == "npm" || parts[0] == "yarn" || parts[0] == "pnpm" || parts[0] == "bun")
+        && parts[1] == "publish"
+    {
+        return true;
+    }
+    // cargo publish
+    if parts.len() >= 2 && parts[0] == "cargo" && parts[1] == "publish" {
+        return true;
+    }
+    false
+}
+
 /// Run one command to completion, streaming each output line to `on_line`.
 pub async fn run<F>(
     spec: CommandSpec,
     control: &RunControl,
+    run_mode: RunMode,
     mut on_line: F,
 ) -> Result<Outcome, ProcessError>
 where
     F: FnMut(OutputStream, String),
 {
     let started = Instant::now();
+
+    if run_mode == RunMode::DryRun {
+        let display = display_dir(&spec.working_dir);
+        on_line(
+            OutputStream::Stdout,
+            format!("📋 [DRY RUN] Would execute in {}:", display),
+        );
+        on_line(OutputStream::Stdout, format!("$ {}", spec.command));
+        if !spec.env.is_empty() {
+            let env_str = spec
+                .env
+                .iter()
+                .map(|(k, v)| format!("{k}={v}"))
+                .collect::<Vec<_>>()
+                .join(" ");
+            on_line(OutputStream::Stdout, format!("📋 [DRY RUN] Env: {}", env_str));
+        }
+
+        // Pacing delay (350ms) so the user can visually track simulated node execution on canvas
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(350)) => {}
+            _ = control.cancelled_signal() => {
+                return Ok(Outcome {
+                    exit_code: None,
+                    duration_ms: started.elapsed().as_millis() as u64,
+                    cancelled: true,
+                });
+            }
+        }
+
+        return Ok(Outcome {
+            exit_code: Some(0),
+            duration_ms: started.elapsed().as_millis() as u64,
+            cancelled: false,
+        });
+    }
+
+    if run_mode == RunMode::Sandbox && is_destructive_network_cmd(&spec.command) {
+        on_line(
+            OutputStream::Stderr,
+            format!("🛡️ [SANDBOX GUARD] Blocked network command in sandbox: {}", spec.command),
+        );
+        on_line(
+            OutputStream::Stderr,
+            "Real network writes (e.g. git push, npm publish) are prevented during sandbox runs for safety.".to_string(),
+        );
+        return Ok(Outcome {
+            exit_code: Some(0),
+            duration_ms: started.elapsed().as_millis() as u64,
+            cancelled: false,
+        });
+    }
 
     if !spec.working_dir.is_dir() {
         return Err(ProcessError::MissingWorkingDir(
@@ -206,6 +285,10 @@ where
     // on a credential prompt it can never receive and pagers swallow output.
     for (key, value) in NON_INTERACTIVE_ENV {
         cmd.env(key, value);
+    }
+
+    if run_mode == RunMode::Sandbox {
+        cmd.env("FUSE_SANDBOX", "1");
     }
 
     // The block's own environment wins — this is a floor, not a ceiling.
@@ -356,7 +439,7 @@ mod tests {
         };
 
         let mut lines = Vec::new();
-        let outcome = run(spec, &RunControl::new(), |_, line| lines.push(line))
+        let outcome = run(spec, &RunControl::new(), RunMode::Live, |_, line| lines.push(line))
             .await
             .unwrap();
 
@@ -373,7 +456,7 @@ mod tests {
         };
 
         let mut lines = Vec::new();
-        run(spec, &RunControl::new(), |_, line| lines.push(line))
+        run(spec, &RunControl::new(), RunMode::Live, |_, line| lines.push(line))
             .await
             .unwrap();
 
@@ -397,6 +480,7 @@ mod tests {
                 env: vec![],
             },
             &control,
+            RunMode::Live,
             |stream, line| lines.push((stream, line)),
         )
         .await
@@ -424,6 +508,7 @@ mod tests {
                 env: vec![],
             },
             &control,
+            RunMode::Live,
             |_, line| lines.push(line),
         )
         .await
@@ -446,6 +531,7 @@ mod tests {
                 env: vec![],
             },
             &control,
+            RunMode::Live,
             |_, line| lines.push(line),
         )
         .await
@@ -465,6 +551,7 @@ mod tests {
                 env: vec![],
             },
             &control,
+            RunMode::Live,
             |_, _| {},
         )
         .await
@@ -483,6 +570,7 @@ mod tests {
                 env: vec![("FUSE_TEST_VAR".into(), "wired".into())],
             },
             &control,
+            RunMode::Live,
             |_, line| lines.push(line),
         )
         .await
@@ -500,10 +588,53 @@ mod tests {
                 env: vec![],
             },
             &control,
+            RunMode::Live,
             |_, _| {},
         )
         .await;
         assert!(matches!(err, Err(ProcessError::MissingWorkingDir(_))));
+    }
+
+    #[tokio::test]
+    async fn dry_run_simulates_without_spawning() {
+        let control = RunControl::new();
+        let mut lines = Vec::new();
+        let outcome = run(
+            CommandSpec {
+                command: "rm -rf /definitely/dangerous/path".into(),
+                working_dir: std::env::temp_dir(),
+                env: vec![],
+            },
+            &control,
+            RunMode::DryRun,
+            |_, line| lines.push(line),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.exit_code, Some(0));
+        assert!(lines.iter().any(|l| l.contains("[DRY RUN] Would execute")));
+    }
+
+    #[tokio::test]
+    async fn sandbox_mode_blocks_git_push() {
+        let control = RunControl::new();
+        let mut lines = Vec::new();
+        let outcome = run(
+            CommandSpec {
+                command: "git push origin main".into(),
+                working_dir: std::env::temp_dir(),
+                env: vec![],
+            },
+            &control,
+            RunMode::Sandbox,
+            |stream, line| lines.push((stream, line)),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome.exit_code, Some(0));
+        assert!(lines.iter().any(|(s, l)| *s == OutputStream::Stderr && l.contains("[SANDBOX GUARD] Blocked network command")));
     }
 
     #[tokio::test]
@@ -523,6 +654,7 @@ mod tests {
                 env: vec![],
             },
             &control,
+            RunMode::Live,
             |_, _| {},
         )
         .await

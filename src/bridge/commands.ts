@@ -9,6 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   PromptReply,
   RepositoryActivity,
+  RunMode,
   WorkflowDocument,
   WorkflowSummary,
 } from "@/types/workflow";
@@ -47,12 +48,27 @@ export function deleteWorkflow(id: string): Promise<void> {
 }
 
 /** Starts a run and resolves with its id; progress arrives as engine events. */
-export function runWorkflow(workflow: WorkflowDocument): Promise<string> {
-  return invoke("run_workflow", { workflow });
+export function runWorkflow(
+  workflow: WorkflowDocument,
+  runMode?: RunMode,
+): Promise<string> {
+  return invoke("run_workflow", { workflow, runMode: runMode ?? "live" });
 }
 
-export function runNode(workflow: WorkflowDocument, nodeId: string): Promise<string> {
-  return invoke("run_node", { workflow, nodeId });
+export function runNode(
+  workflow: WorkflowDocument,
+  nodeId: string,
+  runMode?: RunMode,
+): Promise<string> {
+  return invoke("run_node", { workflow, nodeId, runMode: runMode ?? "live" });
+}
+
+export function applySandboxChanges(runId: string): Promise<void> {
+  return invoke("apply_sandbox_changes", { runId });
+}
+
+export function discardSandbox(runId: string): Promise<void> {
+  return invoke("discard_sandbox", { runId });
 }
 
 export function stopRun(): Promise<void> {

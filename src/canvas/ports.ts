@@ -9,9 +9,9 @@ import { Position } from "@xyflow/react";
 
 export type PortId = "top" | "right" | "bottom" | "left";
 
-export const PORTS: { id: PortId; position: Position; type: "source" | "target" }[] = [
-  { id: "top", position: Position.Top, type: "target" },
-  { id: "left", position: Position.Left, type: "target" },
+export const PORTS: { id: PortId; position: Position; type: "source" }[] = [
+  { id: "top", position: Position.Top, type: "source" },
+  { id: "left", position: Position.Left, type: "source" },
   { id: "right", position: Position.Right, type: "source" },
   { id: "bottom", position: Position.Bottom, type: "source" },
 ];

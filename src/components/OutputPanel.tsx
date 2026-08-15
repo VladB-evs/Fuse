@@ -1,5 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Circle, Copy, Eraser, Minus, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Circle,
+  Copy,
+  Eraser,
+  FileCode,
+  FilePlus,
+  FileX,
+  FlaskConical,
+  Minus,
+  Terminal,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useRuntimeStore } from "@/store/runtimeStore";
 import { useUIStore } from "@/store/uiStore";
@@ -9,10 +23,15 @@ import { cn, formatDuration, formatTime, prettyPath } from "@/lib/utils";
 import { STATUS_LABEL } from "@/lib/status";
 import { catalogEntry } from "@/lib/catalog";
 import {
+  applySandboxChangesAction,
+  discardSandboxAction,
+} from "@/lib/actions";
+import {
   isBlockNode,
   type BlockKind,
   type BlockNodeType,
   type NodeRunState,
+  type SandboxFileDiff,
 } from "@/types/workflow";
 
 const MIN_HEIGHT = 140;
@@ -28,12 +47,23 @@ export function OutputPanel({ homeDir }: { homeDir: string }) {
   const nodes = useWorkflowStore((s) => s.nodes);
   const workflowDir = useWorkflowStore((s) => s.workingDir);
 
+  const runId = useRuntimeStore((s) => s.runId);
+  const runMode = useRuntimeStore((s) => s.runMode);
+  const sandboxDir = useRuntimeStore((s) => s.sandboxDir);
+  const sandboxDiff = useRuntimeStore((s) => s.sandboxDiff);
   const order = useRuntimeStore((s) => s.order);
   const statuses = useRuntimeStore((s) => s.statuses);
   const clearOutput = useRuntimeStore((s) => s.clearOutput);
 
   const [height, setHeight] = useState(DEFAULT_HEIGHT);
   const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState<"output" | "sandbox">("output");
+
+  useEffect(() => {
+    if (runMode === "sandbox" && sandboxDiff && sandboxDiff.length > 0) {
+      setActiveTab("sandbox");
+    }
+  }, [runMode, sandboxDiff]);
 
   // Steps follow the resolved run order once a run exists; before that, top-to
   // bottom on the canvas is the closest honest guess.
@@ -100,6 +130,8 @@ export function OutputPanel({ homeDir }: { homeDir: string }) {
 
   if (!open) return <CollapsedBar />;
 
+  const showSandboxTab = runMode === "sandbox" || Boolean(sandboxDiff || sandboxDir);
+
   return (
     <section
       className="relative z-10 flex shrink-0 flex-col border-t border-line bg-base"
@@ -112,11 +144,46 @@ export function OutputPanel({ homeDir }: { homeDir: string }) {
       />
 
       <header className="flex h-8 shrink-0 items-center gap-2 border-b border-line px-3">
-        <span className="text-[11px] font-medium tracking-wide text-fg-muted uppercase">
-          Output
-        </span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setActiveTab("output")}
+            className={cn(
+              "flex items-center gap-1.5 rounded-[5px] px-2 py-1 text-[11px] font-medium transition",
+              activeTab === "output"
+                ? "bg-hover text-fg"
+                : "text-fg-subtle hover:bg-hover/60 hover:text-fg",
+            )}
+          >
+            <Terminal size={12} />
+            Output
+          </button>
+
+          {showSandboxTab && (
+            <button
+              type="button"
+              onClick={() => setActiveTab("sandbox")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-[5px] px-2 py-1 text-[11px] font-medium transition",
+                activeTab === "sandbox"
+                  ? "bg-amber-500/20 text-amber-300"
+                  : "text-amber-400/80 hover:bg-amber-500/10 hover:text-amber-300",
+              )}
+            >
+              <FlaskConical size={12} />
+              Sandbox Changes
+              {sandboxDiff && sandboxDiff.length > 0 && (
+                <span className="rounded-full bg-amber-500/30 px-1.5 py-0.2 text-[9.5px] font-bold text-amber-300">
+                  {sandboxDiff.length}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+
         <div className="flex-1" />
-        {activeId && (
+
+        {activeTab === "output" && activeId && (
           <>
             <button
               type="button"
@@ -158,10 +225,198 @@ export function OutputPanel({ homeDir }: { homeDir: string }) {
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <StepList steps={steps} activeId={activeId} onPick={(id) => inspect(id, { manual: true })} />
-        <OutputView nodeId={activeId} homeDir={homeDir} workflowDir={workflowDir} />
+        {activeTab === "output" ? (
+          <>
+            <StepList
+              steps={steps}
+              activeId={activeId}
+              onPick={(id) => inspect(id, { manual: true })}
+            />
+            <OutputView nodeId={activeId} homeDir={homeDir} workflowDir={workflowDir} />
+          </>
+        ) : (
+          <SandboxDiffView
+            runId={runId}
+            diff={sandboxDiff}
+            sandboxDir={sandboxDir}
+            homeDir={homeDir}
+          />
+        )}
       </div>
     </section>
+  );
+}
+
+function SandboxDiffView({
+  runId,
+  diff,
+  sandboxDir,
+  homeDir,
+}: {
+  runId: string | null;
+  diff: SandboxFileDiff[] | null;
+  sandboxDir: string | null;
+  homeDir: string;
+}) {
+  const [selectedPath, setSelectedPath] = useState<string | null>(diff?.[0]?.path ?? null);
+  const [isApplying, setIsApplying] = useState(false);
+  const [isDiscarding, setIsDiscarding] = useState(false);
+
+  useEffect(() => {
+    if (diff && diff.length > 0 && (!selectedPath || !diff.some((d) => d.path === selectedPath))) {
+      setSelectedPath(diff[0]?.path ?? null);
+    }
+  }, [diff, selectedPath]);
+
+  const selectedDiff = diff?.find((d) => d.path === selectedPath) ?? diff?.[0] ?? null;
+
+  const handleApply = async () => {
+    if (!runId) return;
+    setIsApplying(true);
+    try {
+      await applySandboxChangesAction(runId);
+    } finally {
+      setIsApplying(false);
+    }
+  };
+
+  const handleDiscard = async () => {
+    if (!runId) return;
+    setIsDiscarding(true);
+    try {
+      await discardSandboxAction(runId);
+    } finally {
+      setIsDiscarding(false);
+    }
+  };
+
+  return (
+    <div className="flex min-w-0 flex-1 flex-col bg-canvas/30">
+      {/* Action Bar */}
+      <div className="flex h-9 shrink-0 items-center justify-between border-b border-line bg-surface/60 px-3">
+        <div className="flex items-center gap-2 text-[11.5px] text-fg-muted">
+          <span className="flex items-center gap-1 font-medium text-amber-400">
+            <FlaskConical size={13} />
+            Isolated Sandbox
+          </span>
+          <span className="text-fg-subtle/50">·</span>
+          <span className="text-[11px] text-fg-subtle truncate max-w-[280px]">
+            {sandboxDir ? prettyPath(sandboxDir, homeDir) : "Worktree copy"}
+          </span>
+        </div>
+
+        {runId && diff && diff.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={handleDiscard}
+              disabled={isDiscarding || isApplying}
+              className="flex items-center gap-1 rounded-[5px] border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-fg-subtle hover:bg-hover hover:text-danger transition cursor-pointer disabled:opacity-50"
+              title="Discard all changes made in this sandbox"
+            >
+              <Trash2 size={11} />
+              {isDiscarding ? "Discarding…" : "Discard Sandbox"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleApply}
+              disabled={isApplying || isDiscarding}
+              className="flex items-center gap-1 rounded-[5px] bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-emerald-500 transition shadow-sm cursor-pointer disabled:opacity-50"
+              title="Apply all sandbox file modifications into your real workspace"
+            >
+              <Check size={11} strokeWidth={2.5} />
+              {isApplying ? "Applying…" : "Apply to Real Repo"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Main Diff Content */}
+      <div className="flex min-h-0 flex-1">
+        {/* File List */}
+        <div className="w-[240px] shrink-0 overflow-y-auto border-r border-line py-1 bg-base/40">
+          {!diff || diff.length === 0 ? (
+            <div className="p-3 text-[11px] text-fg-subtle">
+              No files were created or modified during this sandbox run.
+            </div>
+          ) : (
+            <ul>
+              {diff.map((item) => {
+                const isSelected = item.path === selectedPath;
+                return (
+                  <li key={item.path}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPath(item.path)}
+                      className={cn(
+                        "flex w-full items-center gap-2 px-3 py-1.5 text-left text-[11px] transition cursor-pointer",
+                        isSelected ? "bg-hover text-fg font-medium" : "text-fg-subtle hover:bg-hover/60 hover:text-fg",
+                      )}
+                    >
+                      {item.status === "added" && (
+                        <FilePlus size={12} className="shrink-0 text-emerald-400" />
+                      )}
+                      {item.status === "modified" && (
+                        <FileCode size={12} className="shrink-0 text-amber-400" />
+                      )}
+                      {item.status === "deleted" && (
+                        <FileX size={12} className="shrink-0 text-rose-400" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate font-mono">{item.path}</span>
+                      <span
+                        className={cn(
+                          "shrink-0 text-[9.5px] uppercase font-semibold px-1 py-0.2 rounded",
+                          item.status === "added" && "bg-emerald-500/20 text-emerald-400",
+                          item.status === "modified" && "bg-amber-500/20 text-amber-400",
+                          item.status === "deleted" && "bg-rose-500/20 text-rose-400",
+                        )}
+                      >
+                        {item.status}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        {/* Diff Viewer */}
+        <div className="selectable min-h-0 flex-1 overflow-auto bg-canvas/60 p-3 font-mono text-[11.5px] leading-[18px]">
+          {selectedDiff?.diff ? (
+            <div className="space-y-0.5">
+              {selectedDiff.diff.split("\n").map((line, idx) => {
+                const isAddition = line.startsWith("+") && !line.startsWith("+++");
+                const isDeletion = line.startsWith("-") && !line.startsWith("---");
+                const isHunk = line.startsWith("@@");
+
+                return (
+                  <div
+                    key={idx}
+                    className={cn(
+                      "px-1.5 py-0.2 rounded-xs whitespace-pre-wrap break-all",
+                      isAddition && "bg-emerald-950/40 text-emerald-300",
+                      isDeletion && "bg-rose-950/40 text-rose-300",
+                      isHunk && "text-sky-400/90 font-semibold bg-sky-950/20",
+                      !isAddition && !isDeletion && !isHunk && "text-fg-muted",
+                    )}
+                  >
+                    {line || " "}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center text-[11.5px] text-fg-subtle">
+              {!diff || diff.length === 0
+                ? "Clean sandbox — no differences detected against your working tree."
+                : "Select a file on the left to inspect its diff."}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

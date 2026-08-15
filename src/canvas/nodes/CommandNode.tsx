@@ -1,7 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Handle, type NodeProps } from "@xyflow/react";
 import { PORTS } from "@/canvas/ports";
-import { NodeBypassWire } from "./NodeBypassWire";
 import {
   ChevronDown,
   Eject,
@@ -156,9 +155,6 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
           selected && "border-accent shadow-[0_0_0_1px_var(--color-accent)]",
         )}
       >
-        {/* Animated Dynamic Bypass Line connecting actual entry/exit anchors */}
-        <NodeBypassWire nodeId={id} disabled={disabled} />
-
         {/* Clipped shimmer effect when running — isolated so it doesn't bleed onto the canvas */}
         {isRunning && (
           <div className="running-sheen pointer-events-none absolute inset-0 overflow-hidden rounded-node" />
@@ -199,7 +195,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
           {disabled && (
             <button
               type="button"
-              title="Step is disabled and bypassed during runs. Click to re-enable."
+              title="Step is disabled. Click to re-enable."
               onClick={(e) => {
                 e.stopPropagation();
                 useWorkflowStore.getState().toggleNodeDisabled(id);
@@ -265,7 +261,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
             type="button"
             aria-label="Run this block"
             title="Run this block"
-            disabled={runActive}
+            disabled={runActive || disabled}
             onClick={(e) => {
               e.stopPropagation();
               void runSingleNode(id);

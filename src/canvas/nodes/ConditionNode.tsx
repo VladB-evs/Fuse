@@ -29,8 +29,8 @@ function ConditionNodeImpl({ id, data, selected }: NodeProps<ConditionNodeType>)
       onRename={(label) => updateNodeData(id, { label })}
       ports={
         <>
-          <Handle id={TARGET_PORT} type="target" position={Position.Top} className="fuse-port fuse-port-top" />
-          <Handle id="left" type="target" position={Position.Left} className="fuse-port fuse-port-left" />
+          <Handle id={TARGET_PORT} type="source" position={Position.Top} className="fuse-port fuse-port-top" />
+          <Handle id="left" type="source" position={Position.Left} className="fuse-port fuse-port-left" />
           <Handle
             id={TRUE_PORT}
             type="source"

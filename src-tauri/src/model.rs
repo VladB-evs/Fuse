@@ -494,6 +494,14 @@ impl WorkflowNode {
         }
     }
 
+    pub fn is_frame(&self) -> bool {
+        matches!(self.payload, NodePayload::Frame(_))
+    }
+
+    pub fn is_note(&self) -> bool {
+        matches!(self.payload, NodePayload::Note(_))
+    }
+
     pub fn is_disabled(&self) -> bool {
         if self.disabled == Some(true) {
             return true;

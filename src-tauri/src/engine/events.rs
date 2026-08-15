@@ -31,6 +31,23 @@ pub enum RunStatus {
     Cancelled,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum RunMode {
+    #[default]
+    Live,
+    Sandbox,
+    DryRun,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SandboxFileDiff {
+    pub path: String,
+    pub status: String,
+    pub diff: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "camelCase")]
 pub enum EngineEvent {
@@ -39,6 +56,8 @@ pub enum EngineEvent {
         run_id: String,
         /// Execution order the scheduler resolved, for progress display.
         order: Vec<String>,
+        #[serde(default)]
+        run_mode: RunMode,
         at: u64,
     },
     #[serde(rename_all = "camelCase")]
@@ -88,6 +107,12 @@ pub enum EngineEvent {
         run_id: String,
         status: RunStatus,
         duration_ms: u64,
+        #[serde(default)]
+        run_mode: RunMode,
+        #[serde(default)]
+        sandbox_dir: Option<String>,
+        #[serde(default)]
+        diff: Option<Vec<SandboxFileDiff>>,
         at: u64,
     },
 }

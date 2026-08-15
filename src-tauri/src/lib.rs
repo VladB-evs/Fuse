@@ -47,6 +47,8 @@ pub fn run() {
             commands::home_directory,
             commands::pick_directory,
             commands::repository_activity,
+            commands::apply_sandbox_changes,
+            commands::discard_sandbox,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Fuse");

@@ -314,6 +314,56 @@
   stroke: var(--color-fg-subtle);
 }
 
+/* Wire Directional Arrowhead Markers */
+.react-flow__arrowhead {
+  fill: #5a5a68;
+  stroke: #5a5a68;
+  transition: fill 160ms ease, stroke 160ms ease;
+}
+
+.react-flow__edge:hover .react-flow__arrowhead,
+.fuse-edge.is-selected .react-flow__arrowhead {
+  fill: var(--color-fg-subtle);
+  stroke: var(--color-fg-subtle);
+}
+
+.fuse-edge--running .react-flow__arrowhead {
+  fill: #ffffff;
+  stroke: #ffffff;
+  filter: drop-shadow(0 0 6px var(--color-accent));
+}
+
+.fuse-edge--waiting .react-flow__arrowhead {
+  fill: var(--color-warn);
+  stroke: var(--color-warn);
+}
+
+.fuse-edge--done .react-flow__arrowhead {
+  fill: var(--color-success);
+  stroke: var(--color-success);
+}
+
+.fuse-edge--stopped .react-flow__arrowhead {
+  fill: var(--color-danger);
+  stroke: var(--color-danger);
+}
+
+.fuse-edge--no .react-flow__arrowhead {
+  fill: color-mix(in oklab, var(--color-warn) 70%, white);
+  stroke: color-mix(in oklab, var(--color-warn) 70%, white);
+}
+
+.fuse-edge--splice .react-flow__arrowhead {
+  fill: var(--color-accent) !important;
+  stroke: var(--color-accent) !important;
+}
+
+.fuse-edge--disabled .react-flow__arrowhead {
+  fill: #454552 !important;
+  stroke: #454552 !important;
+  opacity: 0.5;
+}
+
 /* The highlight that travels along a wire. `pathLength="1"` on the path makes
    these dash values length-independent: 20% lit, 80% dark. */
 .fuse-edge-pulse {

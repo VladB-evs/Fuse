@@ -1,16 +1,19 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Handle, type NodeProps } from "@xyflow/react";
 import {
-  Pencil,
-  Play,
   Download,
-  LayoutDashboard,
-  RotateCcw,
-  GripVertical,
+  FileSearch,
+  FlaskConical,
   Folder,
   FolderPlus,
-  X,
+  GripVertical,
+  LayoutDashboard,
   MoreHorizontal,
+  Pencil,
+  Play,
+  RotateCcw,
+  X,
+  Zap,
 } from "lucide-react";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useRuntimeStore } from "@/store/runtimeStore";
@@ -406,7 +409,51 @@ function FrameNodeImpl({ id, data, selected }: NodeProps<FrameNodeType>) {
             </button>
 
             {showMoreMenu && (
-              <div className="absolute right-0 top-[32px] z-50 flex flex-col w-[170px] rounded-lg border border-line-strong bg-elevated/95 p-1 shadow-xl backdrop-blur-md animate-in-soft">
+              <div className="absolute right-0 top-[32px] z-50 flex flex-col w-[185px] rounded-lg border border-line-strong bg-elevated/95 p-1 shadow-xl backdrop-blur-md animate-in-soft">
+                <button
+                  type="button"
+                  disabled={runActive || memberCount === 0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowMoreMenu(false);
+                    void runFrame(id, "live");
+                  }}
+                  className="flex items-center gap-2 rounded-[5px] px-2 py-1.5 text-[11.5px] font-medium text-fg hover:bg-hover transition text-left disabled:opacity-40"
+                >
+                  <Zap size={13} className="shrink-0 text-emerald-400" />
+                  <span>Run Frame (Live)</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={runActive || memberCount === 0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowMoreMenu(false);
+                    void runFrame(id, "sandbox");
+                  }}
+                  className="flex items-center gap-2 rounded-[5px] px-2 py-1.5 text-[11.5px] font-medium text-amber-300 hover:bg-amber-500/20 transition text-left disabled:opacity-40"
+                >
+                  <FlaskConical size={13} className="shrink-0 text-amber-400" />
+                  <span>Run in Sandbox 🧪</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={runActive || memberCount === 0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowMoreMenu(false);
+                    void runFrame(id, "dry_run");
+                  }}
+                  className="flex items-center gap-2 rounded-[5px] px-2 py-1.5 text-[11.5px] font-medium text-sky-300 hover:bg-sky-500/20 transition text-left disabled:opacity-40"
+                >
+                  <FileSearch size={13} className="shrink-0 text-sky-400" />
+                  <span>Dry Run (Simulate) 📋</span>
+                </button>
+
+                <div className="my-1 h-px bg-line/60" />
+
                 <button
                   type="button"
                   onClick={(e) => {

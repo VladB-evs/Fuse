@@ -155,9 +155,6 @@ export function Canvas() {
           );
         });
 
-      // Pulling from an input runs the wire backwards.
-      const backwards = state.fromHandle?.type === "target";
-
       // Dropped on empty canvas: offer to create the block this wire wants,
       // already connected. Dragging a wire *is* the intent to add something.
       if (!dropped) {
@@ -166,8 +163,8 @@ export function Canvas() {
           position: { x: flow.x - 144, y: flow.y - 20 },
           connectFrom: {
             nodeId: state.fromNode.id,
-            handleId: state.fromHandle?.id ?? (backwards ? TARGET_PORT : SOURCE_PORT),
-            backwards,
+            handleId: state.fromHandle?.id ?? SOURCE_PORT,
+            backwards: false,
           },
         });
         return;
@@ -176,12 +173,12 @@ export function Canvas() {
       if (dropped.id === state.fromNode.id) return;
 
       onConnect({
-        source: backwards ? dropped.id : state.fromNode.id,
-        target: backwards ? state.fromNode.id : dropped.id,
+        source: state.fromNode.id,
+        target: dropped.id,
         // Which port the wire *left* from carries meaning on a condition
         // block, so it is kept rather than normalised away.
-        sourceHandle: backwards ? SOURCE_PORT : (state.fromHandle?.id ?? SOURCE_PORT),
-        targetHandle: backwards ? (state.fromHandle?.id ?? TARGET_PORT) : TARGET_PORT,
+        sourceHandle: state.fromHandle?.id ?? SOURCE_PORT,
+        targetHandle: TARGET_PORT,
       });
     },
     [screenToFlowPosition, getNodes, onConnect],
