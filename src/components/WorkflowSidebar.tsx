@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FilePlus2, Folder, Pencil, RefreshCw, Sparkles, Trash2, Workflow, X } from "lucide-react";
+import { Braces, FilePlus2, Folder, Pencil, RefreshCw, Sparkles, Trash2, Workflow, X } from "lucide-react";
 import { listWorkflows } from "@/bridge/commands";
 import {
   chooseWorkingDirectory,
@@ -33,6 +33,7 @@ export function WorkflowSidebar() {
   const dirty = useWorkflowStore((s) => s.dirty);
   const availableUpdate = useUIStore((s) => s.availableUpdate);
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
+  const setImportJsonOpen = useUIStore((s) => s.setImportJsonOpen);
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -106,6 +107,14 @@ export function WorkflowSidebar() {
             className="flex size-6 items-center justify-center rounded-[5px] text-fg-subtle transition hover:bg-hover hover:text-fg"
           >
             <RefreshCw size={11} strokeWidth={2} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setImportJsonOpen(true)}
+            title="Import JSON / Clipboard"
+            className="flex size-6 items-center justify-center rounded-[5px] text-fg-subtle transition hover:bg-hover hover:text-fg"
+          >
+            <Braces size={12} strokeWidth={2} />
           </button>
           <button
             type="button"

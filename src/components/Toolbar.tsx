@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
+  Braces,
   ChevronDown,
   FileSearch,
   FlaskConical,
@@ -31,7 +32,7 @@ import {
 } from "@/lib/actions";
 import { cn, formatDuration } from "@/lib/utils";
 import { RUN_STATUS_LABEL, RUN_STATUS_TONE, TONE_TEXT } from "@/lib/status";
-import type { NodeRunState, RunMode } from "@/types/workflow";
+import type { NodeRunState } from "@/types/workflow";
 
 const TERMINAL_STATES: NodeRunState[] = ["success", "failed", "skipped", "cancelled"];
 
@@ -65,13 +66,15 @@ export function Toolbar() {
   const statuses = useRuntimeStore((s) => s.statuses);
   const lastRun = useRuntimeStore((s) => s.lastRun);
 
-  const [selectedMode, setSelectedMode] = useState<RunMode>("live");
+  const selectedMode = useRuntimeStore((s) => s.selectedRunMode);
+  const setSelectedMode = useRuntimeStore((s) => s.setSelectedRunMode);
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const toast = useUIStore((s) => s.toast);
   const setPaletteOpen = useUIStore((s) => s.setPaletteOpen);
   const setDocsOpen = useUIStore((s) => s.setDocsOpen);
+  const setImportJsonOpen = useUIStore((s) => s.setImportJsonOpen);
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
   const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen);
   const rightSidebarOpen = useUIStore((s) => s.rightSidebarOpen);
@@ -220,29 +223,30 @@ export function Toolbar() {
               disabled={nodeCount === 0}
               className={cn(
                 "rounded-r-none pr-2.5",
-                selectedMode === "sandbox" && "bg-amber-600 hover:bg-amber-500 text-white",
-                selectedMode === "dry_run" && "bg-sky-600 hover:bg-sky-500 text-white",
+                selectedMode === "live" && "fuse-btn-live",
+                selectedMode === "sandbox" && "fuse-btn-sandbox",
+                selectedMode === "dry_run" && "fuse-btn-dryrun",
               )}
               title={
                 selectedMode === "sandbox"
                   ? "Run isolated in Sandbox  ⌘↵"
                   : selectedMode === "dry_run"
                     ? "Dry run simulation  ⌘↵"
-                    : "Run workflow  ⌘↵"
+                    : "⚡ Live Run (Real Execution)  ⌘↵"
               }
             >
               {selectedMode === "sandbox" ? (
-                <FlaskConical size={11} strokeWidth={2} />
+                <FlaskConical size={11} strokeWidth={2} className="drop-shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
               ) : selectedMode === "dry_run" ? (
-                <FileSearch size={11} strokeWidth={2} />
+                <FileSearch size={11} strokeWidth={2} className="drop-shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
               ) : (
-                <Play size={10} fill="currentColor" strokeWidth={0} />
+                <Play size={10} fill="currentColor" strokeWidth={0} className="drop-shadow-[0_0_4px_rgba(255,255,255,0.8)]" />
               )}
               {selectedMode === "sandbox"
                 ? "Sandbox"
                 : selectedMode === "dry_run"
                   ? "Dry Run"
-                  : "Run"}
+                  : "Live Run"}
             </Button>
             <Button
               variant="primary"
@@ -250,8 +254,9 @@ export function Toolbar() {
               disabled={nodeCount === 0}
               className={cn(
                 "rounded-l-none border-l border-white/20 px-1.5",
-                selectedMode === "sandbox" && "bg-amber-600 hover:bg-amber-500 text-white",
-                selectedMode === "dry_run" && "bg-sky-600 hover:bg-sky-500 text-white",
+                selectedMode === "live" && "fuse-btn-live",
+                selectedMode === "sandbox" && "fuse-btn-sandbox",
+                selectedMode === "dry_run" && "fuse-btn-dryrun",
               )}
               title="Select Run Mode"
             >
@@ -265,10 +270,9 @@ export function Toolbar() {
                   onClick={() => {
                     setSelectedMode("live");
                     setModeMenuOpen(false);
-                    void runCurrentWorkflow("live");
                   }}
                   className={cn(
-                    "flex w-full items-start gap-2.5 rounded-md p-2 text-left transition hover:bg-hover",
+                    "flex w-full items-start gap-2.5 rounded-md p-2 text-left transition hover:bg-hover cursor-pointer",
                     selectedMode === "live" && "bg-hover/80",
                   )}
                 >
@@ -286,10 +290,9 @@ export function Toolbar() {
                   onClick={() => {
                     setSelectedMode("sandbox");
                     setModeMenuOpen(false);
-                    void runCurrentWorkflow("sandbox");
                   }}
                   className={cn(
-                    "flex w-full items-start gap-2.5 rounded-md p-2 text-left transition hover:bg-hover",
+                    "flex w-full items-start gap-2.5 rounded-md p-2 text-left transition hover:bg-hover cursor-pointer",
                     selectedMode === "sandbox" && "bg-hover/80",
                   )}
                 >
@@ -307,10 +310,9 @@ export function Toolbar() {
                   onClick={() => {
                     setSelectedMode("dry_run");
                     setModeMenuOpen(false);
-                    void runCurrentWorkflow("dry_run");
                   }}
                   className={cn(
-                    "flex w-full items-start gap-2.5 rounded-md p-2 text-left transition hover:bg-hover",
+                    "flex w-full items-start gap-2.5 rounded-md p-2 text-left transition hover:bg-hover cursor-pointer",
                     selectedMode === "dry_run" && "bg-hover/80",
                   )}
                 >
@@ -349,8 +351,17 @@ export function Toolbar() {
 
       <button
         type="button"
+        onClick={() => setImportJsonOpen(true)}
+        title="Import from JSON / Clipboard"
+        className="flex items-center justify-center rounded-[6px] p-1.5 text-fg-subtle transition hover:bg-hover hover:text-fg"
+      >
+        <Braces size={15} />
+      </button>
+
+      <button
+        type="button"
         onClick={() => void importWorkflow()}
-        title="Open Workflow"
+        title="Open Workflow from File"
         className="flex items-center justify-center rounded-[6px] p-1.5 text-fg-subtle transition hover:bg-hover hover:text-fg"
       >
         <FolderOpen size={15} />

@@ -433,7 +433,7 @@ fn begin_run(
     let sandboxes = state.sandboxes.clone();
 
     tauri::async_runtime::spawn(async move {
-        let _ = engine::execute_with_prompts(
+        let result = engine::execute_with_prompts(
             &workflow,
             &id,
             &sink,
@@ -443,16 +443,12 @@ fn begin_run(
         )
         .await;
 
-        if mode == engine::events::RunMode::Sandbox {
-            let base_dir = workflow
-                .working_dir
-                .as_deref()
-                .map(engine::process::resolve_dir)
-                .unwrap_or_else(engine::process::home_dir);
-            if let Ok(sb) = engine::sandbox::SandboxContext::create(&base_dir, &id) {
-                if let Ok(mut map) = sandboxes.lock() {
-                    map.insert(id.clone(), sb);
-                }
+        // Store the engine's sandbox so Apply/Discard can use it.
+        // The engine already created and populated this sandbox during
+        // execution — creating a new one here would wipe the changes.
+        if let Ok((_, Some(sb))) = result {
+            if let Ok(mut map) = sandboxes.lock() {
+                map.insert(id.clone(), sb);
             }
         }
 
@@ -498,72 +494,76 @@ pub async fn pick_directory(app: AppHandle) -> Result<Option<String>, String> {
 /// is invoked with arguments (never through a shell), keeping folder names
 /// and remote metadata inert.
 #[tauri::command]
-pub fn repository_activity(directory: String) -> Result<RepositoryActivity, String> {
-    let git = |args: &[&str]| {
-        Command::new("git")
-            .arg("-C")
-            .arg(&directory)
-            .args(args)
-            .output()
-    };
+pub async fn repository_activity(directory: String) -> Result<RepositoryActivity, String> {
+    tokio::task::spawn_blocking(move || {
+        let git = |args: &[&str]| {
+            Command::new("git")
+                .arg("-C")
+                .arg(&directory)
+                .args(args)
+                .output()
+        };
 
-    let inside = git(&["rev-parse", "--is-inside-work-tree"])
-        .map_err(|e| format!("Could not inspect Git: {e}"))?;
-    if !inside.status.success() || String::from_utf8_lossy(&inside.stdout).trim() != "true" {
-        return Ok(RepositoryActivity {
-            is_repository: false,
-            is_github: false,
-            remote: None,
-            branch: None,
-            commits: 0,
-            days: vec![],
-            history: vec![],
-        });
-    }
+        let inside = git(&["rev-parse", "--is-inside-work-tree"])
+            .map_err(|e| format!("Could not inspect Git: {e}"))?;
+        if !inside.status.success() || String::from_utf8_lossy(&inside.stdout).trim() != "true" {
+            return Ok(RepositoryActivity {
+                is_repository: false,
+                is_github: false,
+                remote: None,
+                branch: None,
+                commits: 0,
+                days: vec![],
+                history: vec![],
+            });
+        }
 
-    let remote = git(&["remote", "get-url", "origin"])
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .filter(|value| !value.is_empty());
-    let branch = git(&["branch", "--show-current"])
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .filter(|value| !value.is_empty());
+        let remote = git(&["remote", "get-url", "origin"])
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .filter(|value| !value.is_empty());
+        let branch = git(&["branch", "--show-current"])
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .filter(|value| !value.is_empty());
 
-    let log = git(&["log", "--all", "--since=365 days ago", "--format=%as"])
-        .map_err(|e| format!("Could not read Git history: {e}"))?;
-    if !log.status.success() {
-        return Err(String::from_utf8_lossy(&log.stderr).trim().to_string());
-    }
+        let log = git(&["log", "--all", "--since=365 days ago", "--format=%as"])
+            .map_err(|e| format!("Could not read Git history: {e}"))?;
+        if !log.status.success() {
+            return Err(String::from_utf8_lossy(&log.stderr).trim().to_string());
+        }
 
-    let mut counts: BTreeMap<String, u32> = BTreeMap::new();
-    for date in String::from_utf8_lossy(&log.stdout)
-        .lines()
-        .filter(|line| !line.is_empty())
-    {
-        *counts.entry(date.to_string()).or_default() += 1;
-    }
-    let commits = counts.values().sum();
-    let is_github = remote
-        .as_deref()
-        .map(|url| url.contains("github.com"))
-        .unwrap_or(false);
-    let history = latest_commits(&git)?;
+        let mut counts: BTreeMap<String, u32> = BTreeMap::new();
+        for date in String::from_utf8_lossy(&log.stdout)
+            .lines()
+            .filter(|line| !line.is_empty())
+        {
+            *counts.entry(date.to_string()).or_default() += 1;
+        }
+        let commits = counts.values().sum();
+        let is_github = remote
+            .as_deref()
+            .map(|url| url.contains("github.com"))
+            .unwrap_or(false);
+        let history = latest_commits(&git)?;
 
-    Ok(RepositoryActivity {
-        is_repository: true,
-        is_github,
-        remote,
-        branch,
-        commits,
-        days: counts
-            .into_iter()
-            .map(|(date, count)| ActivityDay { date, count })
-            .collect(),
-        history,
+        Ok(RepositoryActivity {
+            is_repository: true,
+            is_github,
+            remote,
+            branch,
+            commits,
+            days: counts
+                .into_iter()
+                .map(|(date, count)| ActivityDay { date, count })
+                .collect(),
+            history,
+        })
     })
+    .await
+    .map_err(|e| format!("Repository inspection failed: {e}"))?
 }
 
 fn latest_commits(

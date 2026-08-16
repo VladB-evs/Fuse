@@ -1,6 +1,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Handle, type NodeProps } from "@xyflow/react";
 import {
+  ChevronDown,
   Download,
   FileSearch,
   FlaskConical,
@@ -150,15 +151,19 @@ function FrameNodeImpl({ id, data, selected }: NodeProps<FrameNodeType>) {
 
   const memberCount = useWorkflowStore((s) => membersOf(id, s.nodes).length);
   const runActive = useRuntimeStore((s) => s.running);
+  const selectedRunMode = useRuntimeStore((s) => s.selectedRunMode);
+  const setSelectedRunMode = useRuntimeStore((s) => s.setSelectedRunMode);
   const isDropTarget = useUIStore((s) => s.dropFrameId === id);
 
   const [editingLabel, setEditingLabel] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showModeMenu, setShowModeMenu] = useState(false);
 
   const labelRef = useRef<HTMLInputElement>(null);
   const colorPickerRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const modeMenuRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const colorKey: FrameColor = data.color && data.color in FRAME_THEMES ? data.color : "default";
@@ -172,15 +177,15 @@ function FrameNodeImpl({ id, data, selected }: NodeProps<FrameNodeType>) {
   useEffect(() => {
     const parentNode = containerRef.current?.closest(".react-flow__node") as HTMLElement | null;
     if (!parentNode) return;
-    if (showMoreMenu || showColorPicker) {
+    if (showMoreMenu || showColorPicker || showModeMenu) {
       parentNode.style.zIndex = "1000";
     } else {
       parentNode.style.zIndex = "";
     }
-  }, [showMoreMenu, showColorPicker]);
+  }, [showMoreMenu, showColorPicker, showModeMenu]);
 
   useEffect(() => {
-    if (!showColorPicker && !showMoreMenu) return;
+    if (!showColorPicker && !showMoreMenu && !showModeMenu) return;
     const handleClickOutside = (e: PointerEvent | MouseEvent) => {
       const target = e.target as Node;
       if (colorPickerRef.current && !colorPickerRef.current.contains(target)) {
@@ -189,11 +194,15 @@ function FrameNodeImpl({ id, data, selected }: NodeProps<FrameNodeType>) {
       if (moreMenuRef.current && !moreMenuRef.current.contains(target)) {
         setShowMoreMenu(false);
       }
+      if (modeMenuRef.current && !modeMenuRef.current.contains(target)) {
+        setShowModeMenu(false);
+      }
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setShowColorPicker(false);
         setShowMoreMenu(false);
+        setShowModeMenu(false);
       }
     };
 
@@ -203,7 +212,7 @@ function FrameNodeImpl({ id, data, selected }: NodeProps<FrameNodeType>) {
       window.removeEventListener("pointerdown", handleClickOutside, { capture: true });
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [showColorPicker, showMoreMenu]);
+  }, [showColorPicker, showMoreMenu, showModeMenu]);
 
   const folderName = data.workingDir ? data.workingDir.split("/").filter(Boolean).pop() : null;
 
@@ -224,6 +233,15 @@ function FrameNodeImpl({ id, data, selected }: NodeProps<FrameNodeType>) {
 
       {/* Header tab. Sits above the frame as an unconstrained floating pill that never wraps or breaks. */}
       <div
+        onMouseDown={(e) => {
+          if (
+            document.activeElement instanceof HTMLElement &&
+            (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA") &&
+            document.activeElement !== e.target
+          ) {
+            document.activeElement.blur();
+          }
+        }}
         className={cn(
           "absolute -top-[38px] left-0 flex h-[34px] w-max min-w-[180px] items-center gap-1.5",
           "rounded-t-[10px] border border-b-0 px-2 shadow-sm whitespace-nowrap",
@@ -365,29 +383,140 @@ function FrameNodeImpl({ id, data, selected }: NodeProps<FrameNodeType>) {
             )}
           </div>
 
-          {/* Run Button */}
-          <button
-            type="button"
-            disabled={runActive || memberCount === 0}
-            title={
-              memberCount === 0
-                ? "Drag blocks into this frame to run it"
-                : `Run the ${memberCount} block${memberCount === 1 ? "" : "s"} in this frame`
-            }
-            onClick={(e) => {
-              e.stopPropagation();
-              void runFrame(id);
-            }}
-            className={cn(
-              "flex shrink-0 items-center gap-1.5 rounded-[6px] px-2.5 h-[26px]",
-              "text-[11.5px] font-semibold transition shadow-xs",
-              theme.accent,
-              "disabled:pointer-events-none disabled:opacity-35",
+          {/* Run Split Button */}
+          <div className="relative flex items-center pointer-events-auto" ref={modeMenuRef}>
+            <button
+              type="button"
+              disabled={runActive || memberCount === 0}
+              title={
+                memberCount === 0
+                  ? "Drag blocks into this frame to run it"
+                  : selectedRunMode === "sandbox"
+                    ? `Run ${memberCount} block${memberCount === 1 ? "" : "s"} in Sandbox`
+                    : selectedRunMode === "dry_run"
+                      ? `Dry run simulate ${memberCount} block${memberCount === 1 ? "" : "s"}`
+                      : `⚡ Live Run ${memberCount} block${memberCount === 1 ? "" : "s"} in this frame`
+              }
+              onClick={(e) => {
+                e.stopPropagation();
+                void runFrame(id, selectedRunMode);
+              }}
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 rounded-l-[6px] pl-2.5 pr-1.5 h-[26px]",
+                "text-[11.5px] font-semibold transition shadow-xs cursor-pointer",
+                selectedRunMode === "live"
+                  ? "fuse-btn-live"
+                  : selectedRunMode === "sandbox"
+                    ? "fuse-btn-sandbox"
+                    : selectedRunMode === "dry_run"
+                      ? "fuse-btn-dryrun"
+                      : theme.accent,
+                "disabled:pointer-events-none disabled:opacity-35",
+              )}
+            >
+              {selectedRunMode === "sandbox" ? (
+                <FlaskConical size={11} strokeWidth={2} className="drop-shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
+              ) : selectedRunMode === "dry_run" ? (
+                <FileSearch size={11} strokeWidth={2} className="drop-shadow-[0_0_4px_rgba(255,255,255,0.6)]" />
+              ) : (
+                <Play size={10} fill="currentColor" strokeWidth={0} className="drop-shadow-[0_0_4px_rgba(255,255,255,0.8)]" />
+              )}
+              <span>
+                {selectedRunMode === "sandbox"
+                  ? "Sandbox"
+                  : selectedRunMode === "dry_run"
+                    ? "Dry Run"
+                    : "Live Run"}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              disabled={runActive || memberCount === 0}
+              title="Select Run Mode for Frame"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowModeMenu((v) => !v);
+                setShowMoreMenu(false);
+                setShowColorPicker(false);
+              }}
+              className={cn(
+                "flex shrink-0 items-center justify-center rounded-r-[6px] px-1 h-[26px] border-l border-black/20",
+                "text-[11px] font-semibold transition shadow-xs cursor-pointer",
+                selectedRunMode === "live"
+                  ? "fuse-btn-live"
+                  : selectedRunMode === "sandbox"
+                    ? "fuse-btn-sandbox"
+                    : selectedRunMode === "dry_run"
+                      ? "fuse-btn-dryrun"
+                      : theme.accent,
+                "disabled:pointer-events-none disabled:opacity-35",
+              )}
+            >
+              <ChevronDown size={10} strokeWidth={2.5} />
+            </button>
+
+            {showModeMenu && (
+              <div className="absolute right-0 top-[32px] z-50 flex flex-col w-[210px] rounded-lg border border-line-strong bg-elevated/95 p-1 shadow-xl backdrop-blur-md animate-in-soft">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedRunMode("live");
+                    setShowModeMenu(false);
+                  }}
+                  className={cn(
+                    "flex items-center gap-2 rounded-[5px] px-2 py-1.5 text-[11.5px] font-medium text-fg hover:bg-hover transition text-left cursor-pointer",
+                    selectedRunMode === "live" && "bg-hover/80",
+                  )}
+                >
+                  <Zap size={13} className="shrink-0 text-emerald-400" />
+                  <div className="flex-1">
+                    <div>⚡ Live Run</div>
+                    <div className="text-[9.5px] text-fg-subtle">Run against real repo</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedRunMode("sandbox");
+                    setShowModeMenu(false);
+                  }}
+                  className={cn(
+                    "flex items-center gap-2 rounded-[5px] px-2 py-1.5 text-[11.5px] font-medium text-amber-300 hover:bg-amber-500/20 transition text-left cursor-pointer",
+                    selectedRunMode === "sandbox" && "bg-amber-500/20",
+                  )}
+                >
+                  <FlaskConical size={13} className="shrink-0 text-amber-400" />
+                  <div className="flex-1">
+                    <div>🧪 Sandbox Run</div>
+                    <div className="text-[9.5px] text-amber-400/70">Isolated with diff review</div>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedRunMode("dry_run");
+                    setShowModeMenu(false);
+                  }}
+                  className={cn(
+                    "flex items-center gap-2 rounded-[5px] px-2 py-1.5 text-[11.5px] font-medium text-sky-300 hover:bg-sky-500/20 transition text-left cursor-pointer",
+                    selectedRunMode === "dry_run" && "bg-sky-500/20",
+                  )}
+                >
+                  <FileSearch size={13} className="shrink-0 text-sky-400" />
+                  <div className="flex-1">
+                    <div>📋 Dry Run (Simulate)</div>
+                    <div className="text-[9.5px] text-sky-400/70">Simulation with zero side-effects</div>
+                  </div>
+                </button>
+              </div>
             )}
-          >
-            <Play size={10} fill="currentColor" strokeWidth={0} />
-            <span>Run</span>
-          </button>
+          </div>
 
           {/* More Actions Menu (...) */}
           <div className="relative" ref={moreMenuRef}>
@@ -410,50 +539,6 @@ function FrameNodeImpl({ id, data, selected }: NodeProps<FrameNodeType>) {
 
             {showMoreMenu && (
               <div className="absolute right-0 top-[32px] z-50 flex flex-col w-[185px] rounded-lg border border-line-strong bg-elevated/95 p-1 shadow-xl backdrop-blur-md animate-in-soft">
-                <button
-                  type="button"
-                  disabled={runActive || memberCount === 0}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowMoreMenu(false);
-                    void runFrame(id, "live");
-                  }}
-                  className="flex items-center gap-2 rounded-[5px] px-2 py-1.5 text-[11.5px] font-medium text-fg hover:bg-hover transition text-left disabled:opacity-40"
-                >
-                  <Zap size={13} className="shrink-0 text-emerald-400" />
-                  <span>Run Frame (Live)</span>
-                </button>
-
-                <button
-                  type="button"
-                  disabled={runActive || memberCount === 0}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowMoreMenu(false);
-                    void runFrame(id, "sandbox");
-                  }}
-                  className="flex items-center gap-2 rounded-[5px] px-2 py-1.5 text-[11.5px] font-medium text-amber-300 hover:bg-amber-500/20 transition text-left disabled:opacity-40"
-                >
-                  <FlaskConical size={13} className="shrink-0 text-amber-400" />
-                  <span>Run in Sandbox 🧪</span>
-                </button>
-
-                <button
-                  type="button"
-                  disabled={runActive || memberCount === 0}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowMoreMenu(false);
-                    void runFrame(id, "dry_run");
-                  }}
-                  className="flex items-center gap-2 rounded-[5px] px-2 py-1.5 text-[11.5px] font-medium text-sky-300 hover:bg-sky-500/20 transition text-left disabled:opacity-40"
-                >
-                  <FileSearch size={13} className="shrink-0 text-sky-400" />
-                  <span>Dry Run (Simulate) 📋</span>
-                </button>
-
-                <div className="my-1 h-px bg-line/60" />
-
                 <button
                   type="button"
                   onClick={(e) => {

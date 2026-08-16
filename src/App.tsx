@@ -11,6 +11,7 @@ import { NodePicker } from "@/components/NodePicker";
 import { WorkflowSidebar } from "@/components/WorkflowSidebar";
 import { RepositoryActivityPanel } from "@/components/RepositoryActivityPanel";
 import { DocumentationDialog } from "@/components/DocumentationDialog";
+import { ImportJsonDialog } from "@/components/ImportJsonDialog";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { subscribeToEngine } from "@/bridge/events";
@@ -159,6 +160,7 @@ function AppShell() {
       <RunInputDialog />
       <PromptDialog />
       <DocumentationDialog />
+      <ImportJsonDialog />
       <SettingsDialog />
     </div>
   );

@@ -96,13 +96,14 @@ function FlowEdgeImpl({
             single set of dash values works for wires of any length. */}
         {!disabled && <path className="fuse-edge-pulse" d={path} pathLength={1} />}
 
-        <circle className="fuse-edge-cap" cx={from.x} cy={from.y} r={2.4} />
+        <circle className="fuse-edge-cap" cx={from.x} cy={from.y} r={3.8} />
       </g>
 
       {/* Splicing insert preview badge */}
       {isDropTarget && (
         <EdgeLabelRenderer>
           <div
+            data-edge-id={id}
             className="nodrag nopan pointer-events-none absolute z-50 flex items-center gap-1 rounded-full border border-accent/90 bg-accent px-2 py-0.5 text-[10px] font-semibold text-white shadow-[0_0_16px_rgba(91,108,255,0.8)] animate-pulse"
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
           >
@@ -116,6 +117,7 @@ function FlowEdgeImpl({
       {disabled && !isDropTarget && (
         <EdgeLabelRenderer>
           <div
+            data-edge-id={id}
             className="nodrag nopan pointer-events-auto absolute z-40"
             style={{
               position: "absolute",
@@ -153,6 +155,7 @@ function FlowEdgeImpl({
         <EdgeLabelRenderer>
           <button
             type="button"
+            data-edge-id={id}
             aria-label="Disconnect"
             title="Disconnect  (or drag either end off the block)"
             onMouseEnter={() => setHovered(true)}

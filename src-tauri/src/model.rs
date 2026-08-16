@@ -373,6 +373,11 @@ pub struct NoteData {
     pub label: String,
     pub frame_id: Option<String>,
     pub text: String,
+    pub variable: Option<String>,
+    pub width: Option<f64>,
+    pub height: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disabled: Option<bool>,
 }
@@ -455,6 +460,8 @@ impl Default for BumpVersionData {
 pub struct AiCommitData {
     pub label: String,
     pub frame_id: Option<String>,
+    pub prompt: Option<String>,
+    pub input_variable: Option<String>,
     pub variable: String,
     pub scope: String,
     pub style: String,
@@ -467,8 +474,10 @@ pub struct AiCommitData {
 impl Default for AiCommitData {
     fn default() -> Self {
         Self {
-            label: "AI Commit Summary".into(),
+            label: "AI Summarizer".into(),
             frame_id: None,
+            prompt: Some("Summarize the changes into a concise conventional git commit message".into()),
+            input_variable: None,
             variable: "commit_message".into(),
             scope: "staged".into(),
             style: "conventional".into(),

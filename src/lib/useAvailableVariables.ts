@@ -36,7 +36,8 @@ export function useAvailableVariables(): AvailableVariable[] {
           node.type === "read_file" ||
           node.type === "set_variable" ||
           node.type === "http" ||
-          node.type === "ai_commit") &&
+          node.type === "ai_commit" ||
+          node.type === "note") &&
         typeof d.variable === "string" &&
         d.variable.trim()
       ) {
@@ -47,7 +48,19 @@ export function useAvailableVariables(): AvailableVariable[] {
         });
       }
 
-      // bump_version exposes `variableOut`.
+      // Auto-expose Note variable if not explicitly set
+      if (node.type === "note" && (!d.variable || !String(d.variable).trim())) {
+        const clean = ((d.label as string) || "note")
+          .toLowerCase()
+          .replace(/[^a-z0-9_]/g, "_")
+          .replace(/^_+|_+$/g, "");
+        const autoName = clean && clean !== "note" ? `note_${clean}` : "note";
+        vars.push({
+          name: autoName,
+          sourceLabel: (d.label as string) || "Note",
+          sourceKind: "note",
+        });
+      }
       if (
         node.type === "bump_version" &&
         typeof d.variableOut === "string" &&

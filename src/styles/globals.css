@@ -251,32 +251,34 @@
 
 .fuse-port-top::before,
 .fuse-port-bottom::before {
-  width: 26px;
-  height: 3px;
+  width: 32px;
+  height: 4px;
 }
 .fuse-port-left::before,
 .fuse-port-right::before {
-  width: 3px;
-  height: 26px;
+  width: 4px;
+  height: 32px;
 }
 
 .react-flow__node:hover .fuse-port::before,
 .is-connecting .fuse-port::before {
-  opacity: 0.8;
+  opacity: 0.85;
 }
 
 .fuse-port:hover::before {
   opacity: 1;
   background: var(--color-accent);
-  box-shadow: 0 0 10px color-mix(in oklab, var(--color-accent) 60%, transparent);
+  box-shadow: 0 0 12px color-mix(in oklab, var(--color-accent) 70%, transparent);
 }
 .fuse-port-top:hover::before,
 .fuse-port-bottom:hover::before {
-  width: calc(100% - 18px);
+  width: calc(100% - 16px);
+  height: 5px;
 }
 .fuse-port-left:hover::before,
 .fuse-port-right:hover::before {
-  height: calc(100% - 8px);
+  height: calc(100% - 6px);
+  width: 5px;
 }
 
 /* While a wire is in flight the whole block is a drop target, so it should
@@ -302,45 +304,51 @@
    Wires
 --------------------------------------------------------------------------- */
 .react-flow__edge-path {
-  stroke: #3a3a44;
-  stroke-width: 1.75;
+  stroke: #4a4a5a;
+  stroke-width: 2.75;
   transition:
     stroke 160ms ease,
-    stroke-width 160ms ease;
+    stroke-width 160ms ease,
+    filter 160ms ease;
 }
 
 .react-flow__edge:hover .react-flow__edge-path,
 .fuse-edge.is-selected .react-flow__edge-path {
-  stroke: var(--color-fg-subtle);
+  stroke: color-mix(in oklab, var(--color-accent) 80%, white);
+  stroke-width: 3.25;
+  filter: drop-shadow(0 0 5px color-mix(in oklab, var(--color-accent) 50%, transparent));
 }
 
 /* Wire Directional Arrowhead Markers */
 .react-flow__arrowhead {
-  fill: #5a5a68;
-  stroke: #5a5a68;
-  transition: fill 160ms ease, stroke 160ms ease;
+  fill: #6c6c80;
+  stroke: #6c6c80;
+  transition: fill 160ms ease, stroke 160ms ease, filter 160ms ease;
 }
 
 .react-flow__edge:hover .react-flow__arrowhead,
 .fuse-edge.is-selected .react-flow__arrowhead {
-  fill: var(--color-fg-subtle);
-  stroke: var(--color-fg-subtle);
+  fill: color-mix(in oklab, var(--color-accent) 90%, white);
+  stroke: color-mix(in oklab, var(--color-accent) 90%, white);
+  filter: drop-shadow(0 0 6px var(--color-accent));
 }
 
 .fuse-edge--running .react-flow__arrowhead {
   fill: #ffffff;
   stroke: #ffffff;
-  filter: drop-shadow(0 0 6px var(--color-accent));
+  filter: drop-shadow(0 0 8px var(--color-accent));
 }
 
 .fuse-edge--waiting .react-flow__arrowhead {
   fill: var(--color-warn);
   stroke: var(--color-warn);
+  filter: drop-shadow(0 0 6px var(--color-warn));
 }
 
 .fuse-edge--done .react-flow__arrowhead {
   fill: var(--color-success);
   stroke: var(--color-success);
+  filter: drop-shadow(0 0 6px var(--color-success));
 }
 
 .fuse-edge--stopped .react-flow__arrowhead {
@@ -349,18 +357,19 @@
 }
 
 .fuse-edge--no .react-flow__arrowhead {
-  fill: color-mix(in oklab, var(--color-warn) 70%, white);
-  stroke: color-mix(in oklab, var(--color-warn) 70%, white);
+  fill: color-mix(in oklab, var(--color-warn) 80%, white);
+  stroke: color-mix(in oklab, var(--color-warn) 80%, white);
 }
 
 .fuse-edge--splice .react-flow__arrowhead {
   fill: var(--color-accent) !important;
   stroke: var(--color-accent) !important;
+  filter: drop-shadow(0 0 8px var(--color-accent)) !important;
 }
 
 .fuse-edge--disabled .react-flow__arrowhead {
-  fill: #454552 !important;
-  stroke: #454552 !important;
+  fill: #4c4c5c !important;
+  stroke: #4c4c5c !important;
   opacity: 0.5;
 }
 
@@ -368,23 +377,25 @@
    these dash values length-independent: 20% lit, 80% dark. */
 .fuse-edge-pulse {
   fill: none;
-  stroke: color-mix(in oklab, var(--color-accent) 80%, white);
-  stroke-width: 2.25;
+  stroke: color-mix(in oklab, var(--color-accent) 85%, white);
+  stroke-width: 3.25;
   stroke-linecap: round;
-  stroke-dasharray: 0.2 0.8;
-  opacity: 0.65;
+  stroke-dasharray: 0.22 0.78;
+  opacity: 0.85;
   pointer-events: none;
-  animation: fuse-travel 2.5s linear infinite;
-  filter: drop-shadow(0 0 3px color-mix(in oklab, var(--color-accent) 40%, transparent));
+  animation: fuse-travel 2.4s linear infinite;
+  filter: drop-shadow(0 0 5px color-mix(in oklab, var(--color-accent) 55%, transparent));
   transition:
     stroke 160ms ease,
-    opacity 160ms ease;
+    stroke-width 160ms ease,
+    opacity 160ms ease,
+    filter 160ms ease;
 }
 
 .fuse-edge-cap {
-  fill: #4a4a56;
+  fill: #5a5a6c;
   pointer-events: none;
-  transition: fill 160ms ease;
+  transition: fill 160ms ease, filter 160ms ease;
 }
 .fuse-edge-cap--in {
   fill: var(--color-accent);
@@ -393,36 +404,44 @@
 .fuse-edge:hover .fuse-edge-pulse,
 .fuse-edge.is-selected .fuse-edge-pulse {
   opacity: 1;
-  stroke-width: 2.75;
+  stroke-width: 3.75;
+  filter: drop-shadow(0 0 8px var(--color-accent));
+}
+
+.fuse-edge:hover .fuse-edge-cap,
+.fuse-edge.is-selected .fuse-edge-cap {
+  fill: var(--color-accent);
+  filter: drop-shadow(0 0 5px var(--color-accent));
 }
 
 .fuse-edge--running .react-flow__edge-path {
-  stroke: color-mix(in oklab, var(--color-accent) 50%, transparent);
-  stroke-width: 2;
+  stroke: color-mix(in oklab, var(--color-accent) 60%, transparent);
+  stroke-width: 3;
 }
 .fuse-edge--running .fuse-edge-pulse {
   stroke: #ffffff;
-  stroke-width: 3.5;
+  stroke-width: 4.5;
   stroke-dasharray: 0.5 0.5;
   opacity: 1;
   animation: fuse-travel 0.65s linear infinite;
-  filter: drop-shadow(0 0 7px var(--color-accent)) drop-shadow(0 0 16px var(--color-accent));
+  filter: drop-shadow(0 0 8px var(--color-accent)) drop-shadow(0 0 18px var(--color-accent));
 }
 .fuse-edge--running .fuse-edge-cap {
   fill: var(--color-accent);
+  filter: drop-shadow(0 0 6px var(--color-accent));
 }
 
 .fuse-edge--waiting .react-flow__edge-path {
-  stroke: color-mix(in oklab, var(--color-warn) 55%, transparent);
-  stroke-width: 2;
+  stroke: color-mix(in oklab, var(--color-warn) 65%, transparent);
+  stroke-width: 3;
 }
 .fuse-edge--waiting .fuse-edge-pulse {
   stroke: var(--color-warn);
-  stroke-width: 2.5;
+  stroke-width: 3.5;
   opacity: 1;
   /* Slower than a running wire: the run is alive, but nothing is moving. */
   animation: fuse-travel 3s linear infinite;
-  filter: drop-shadow(0 0 6px color-mix(in oklab, var(--color-warn) 55%, transparent));
+  filter: drop-shadow(0 0 8px color-mix(in oklab, var(--color-warn) 70%, transparent));
 }
 .fuse-edge--waiting .fuse-edge-cap,
 .fuse-edge--waiting .fuse-edge-cap--in {
@@ -430,18 +449,19 @@
 }
 
 .fuse-edge--done .react-flow__edge-path {
-  stroke: color-mix(in oklab, var(--color-success) 32%, #3a3a44);
+  stroke: color-mix(in oklab, var(--color-success) 40%, #424250);
+  stroke-width: 2.75;
 }
 .fuse-edge--done .fuse-edge-pulse {
   stroke: var(--color-success);
-  stroke-width: 2;
-  opacity: 0.6;
+  stroke-width: 3.25;
+  opacity: 0.85;
   animation: fuse-travel 3.2s linear infinite;
-  filter: drop-shadow(0 0 3px color-mix(in oklab, var(--color-success) 50%, transparent));
+  filter: drop-shadow(0 0 5px color-mix(in oklab, var(--color-success) 65%, transparent));
 }
 .fuse-edge--done .fuse-edge-cap,
 .fuse-edge--done .fuse-edge-cap--in {
-  fill: color-mix(in oklab, var(--color-success) 65%, #3a3a44);
+  fill: var(--color-success);
 }
 
 .fuse-edge--stopped .fuse-edge-pulse {
@@ -449,8 +469,9 @@
   opacity: 0;
 }
 .fuse-edge--stopped .react-flow__edge-path {
-  stroke: color-mix(in oklab, var(--color-danger) 28%, var(--color-line-strong));
-  stroke-dasharray: 2 4;
+  stroke: color-mix(in oklab, var(--color-danger) 35%, var(--color-line-strong));
+  stroke-width: 2.75;
+  stroke-dasharray: 3 4;
 }
 
 .fuse-edge--skipped {
@@ -464,26 +485,28 @@
 /* A wire leaving a condition's "no" port. Dashed, so the two branches out of
    one block can be told apart without reading the labels. */
 .fuse-edge--no .react-flow__edge-path {
-  stroke-dasharray: 5 4;
-  stroke: color-mix(in oklab, var(--color-warn) 40%, #3a3a44);
+  stroke-dasharray: 6 4;
+  stroke-width: 2.75;
+  stroke: color-mix(in oklab, var(--color-warn) 50%, #424250);
 }
 .fuse-edge--no .fuse-edge-pulse {
-  stroke: color-mix(in oklab, var(--color-warn) 70%, white);
+  stroke: color-mix(in oklab, var(--color-warn) 80%, white);
+  stroke-width: 3.25;
 }
 
 /* Edge splice preview when a node is dragged over it */
 .fuse-edge--splice .react-flow__edge-path {
   stroke: var(--color-accent) !important;
-  stroke-width: 2.5 !important;
-  stroke-dasharray: 6 4 !important;
+  stroke-width: 3.5 !important;
+  stroke-dasharray: 7 4 !important;
   animation: fuse-dash-scroll 0.8s linear infinite !important;
-  filter: drop-shadow(0 0 8px var(--color-accent)) !important;
+  filter: drop-shadow(0 0 10px var(--color-accent)) !important;
 }
 .fuse-edge--splice .fuse-edge-pulse {
   stroke: #ffffff !important;
-  stroke-width: 3.5 !important;
+  stroke-width: 4.5 !important;
   opacity: 1 !important;
-  filter: drop-shadow(0 0 10px var(--color-accent)) !important;
+  filter: drop-shadow(0 0 14px var(--color-accent)) !important;
 }
 .fuse-edge--splice .fuse-edge-cap {
   fill: var(--color-accent) !important;
@@ -503,21 +526,161 @@
   opacity: 0.38;
 }
 .fuse-edge--disabled .react-flow__edge-path {
-  stroke: #454552 !important;
-  stroke-dasharray: 4 4 !important;
+  stroke: #4a4a5a !important;
+  stroke-width: 2.5 !important;
+  stroke-dasharray: 5 4 !important;
 }
 .fuse-edge--disabled .fuse-edge-pulse {
   animation: none !important;
   opacity: 0 !important;
 }
 .fuse-edge--disabled .fuse-edge-cap {
-  fill: #353540 !important;
+  fill: #3a3a48 !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Node Corner Resize Handles (All 4 Corners - Centered on border line)
+--------------------------------------------------------------------------- */
+/*
+ * @xyflow/react's base.css already centers `.react-flow__resize-control.handle`
+ * on its `top`/`left`/`right`/`bottom` anchor via the individual CSS
+ * `translate: -50% -50%` property. That's a *separate* property from
+ * `transform` — the two compose instead of one overriding the other — so
+ * adding our own `transform: translate(-50%, -50%)` here would double the
+ * offset and push the whole hit target (and everything inside it) a full
+ * extra half-width away from the corner. Leave `transform` alone; the
+ * library's `translate` is what centers this box on the corner.
+ */
+.fuse-corner-resizer {
+  position: absolute !important;
+  width: 20px !important;
+  height: 20px !important;
+  z-index: 60 !important;
+  pointer-events: all !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+.fuse-corner-resizer-tl {
+  top: 0 !important;
+  left: 0 !important;
+  cursor: nwse-resize !important;
+}
+
+.fuse-corner-resizer-tr {
+  top: 0 !important;
+  right: 0 !important;
+  cursor: nesw-resize !important;
+}
+
+.fuse-corner-resizer-bl {
+  bottom: 0 !important;
+  left: 0 !important;
+  cursor: nesw-resize !important;
+}
+
+.fuse-corner-resizer-br {
+  bottom: 0 !important;
+  right: 0 !important;
+  cursor: nwse-resize !important;
+}
+
+/*
+ * The card border has `--radius-node: 11px`, so at each corner the visible
+ * border line is not the sharp geometric corner point — it's where the
+ * rounded arc crosses the 45° diagonal bisector. That point sits inboard of
+ * the sharp corner by r*(1-cos45°) ≈ 11px * 0.2929 ≈ 3.22px along both axes.
+ * The grip is centered exactly there (not on the sharp vertex) and rotated
+ * 45° so its edges run tangent to the border curve at that point — it reads
+ * as a diamond sitting flush on top of the line, on every corner.
+ */
+.fuse-corner-resize-grip {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--color-line-strong);
+  border: 2px solid var(--color-base);
+  transition: background-color 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/*
+ * `top/left: X` + `transform: translate(-50%, -50%)` is the standard
+ * "center the box on point X" pattern: translate(-50%,-50%) always shifts
+ * the box by exactly half of its OWN rendered size, so the box's rendered
+ * center lands exactly at X regardless of border-box/content-box or border
+ * width — no need to hand-compute the box's half-size. The container is
+ * 20px square centered on the sharp corner (i.e. the sharp corner sits at
+ * its own local 50%,50%), so `calc(50% + 3.22px)` targets the point 3.22px
+ * inboard of the sharp corner along the diagonal — where the rounded
+ * border line actually is.
+ */
+.fuse-corner-grip-tl {
+  top: calc(50% + 3.22px);
+  left: calc(50% + 3.22px);
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.fuse-corner-grip-tr {
+  top: calc(50% + 3.22px);
+  right: calc(50% + 3.22px);
+  transform: translate(50%, -50%) rotate(45deg);
+}
+
+.fuse-corner-grip-bl {
+  bottom: calc(50% + 3.22px);
+  left: calc(50% + 3.22px);
+  transform: translate(-50%, 50%) rotate(45deg);
+}
+
+.fuse-corner-grip-br {
+  bottom: calc(50% + 3.22px);
+  right: calc(50% + 3.22px);
+  transform: translate(50%, 50%) rotate(45deg);
+}
+
+.group:hover .fuse-corner-resize-grip,
+.react-flow__node.selected .fuse-corner-resize-grip {
+  background: var(--color-accent);
+  border-color: var(--color-base);
+  box-shadow: 0 0 0 2px var(--color-accent), 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.fuse-corner-resizer:hover .fuse-corner-grip-tl,
+.fuse-corner-resizer:hover .fuse-corner-grip-tr,
+.fuse-corner-resizer:hover .fuse-corner-grip-bl,
+.fuse-corner-resizer:hover .fuse-corner-grip-br {
+  background: var(--color-accent);
+  border-color: var(--color-base);
+  box-shadow: 0 0 0 2px var(--color-accent), 0 0 8px color-mix(in oklab, var(--color-accent) 70%, transparent);
+}
+
+.fuse-corner-resizer:hover .fuse-corner-grip-tl { transform: translate(-50%, -50%) rotate(45deg) scale(1.2); }
+.fuse-corner-resizer:hover .fuse-corner-grip-tr { transform: translate(50%, -50%) rotate(45deg) scale(1.2); }
+.fuse-corner-resizer:hover .fuse-corner-grip-bl { transform: translate(-50%, 50%) rotate(45deg) scale(1.2); }
+.fuse-corner-resizer:hover .fuse-corner-grip-br { transform: translate(50%, 50%) rotate(45deg) scale(1.2); }
+
+.fuse-resizer-handle {
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 3px !important;
+  background: var(--color-accent) !important;
+  border: 2.5px solid #09090b !important;
+  box-shadow: 0 0 0 1.5px var(--color-accent), 0 2px 5px rgba(0, 0, 0, 0.6) !important;
+  z-index: 50 !important;
+}
+
+.fuse-resizer-line {
+  border-color: var(--color-accent) !important;
+  border-width: 2px !important;
 }
 
 /* Slicer Overlay */
 .slicer-dotted-line {
   stroke: #ff3b69;
-  stroke-width: 2;
+  stroke-width: 2.5;
   stroke-dasharray: 5 4;
   stroke-linecap: round;
   filter: drop-shadow(0 0 4px rgba(255, 59, 105, 0.45));
@@ -605,6 +768,14 @@ body.slicing-active .react-flow__handle {
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-danger) 14%, transparent);
 }
 
+/* While drag collection is active, hide all edge cut buttons and edge label overlays */
+.is-collecting-nodes .fuse-edge-cut,
+.is-collecting-nodes .react-flow__edgelabel-renderer {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
 /* The two ways out of a condition block, coloured to match their labels. */
 .fuse-port--true::before {
   background: color-mix(in oklab, var(--color-success) 70%, var(--color-line-strong));
@@ -619,27 +790,30 @@ body.slicing-active .react-flow__handle {
 .fuse-link-path {
   fill: none;
   stroke: var(--color-accent);
-  stroke-width: 1.75;
+  stroke-width: 3;
   stroke-linecap: round;
-  stroke-dasharray: 0.06 0.06;
+  stroke-dasharray: 0.08 0.08;
   animation: fuse-travel 1.4s linear infinite;
+  filter: drop-shadow(0 0 6px var(--color-accent));
 }
 
 .fuse-link-glow {
   fill: none;
-  stroke: color-mix(in oklab, var(--color-accent) 30%, transparent);
-  stroke-width: 6;
-  filter: blur(3px);
+  stroke: color-mix(in oklab, var(--color-accent) 35%, transparent);
+  stroke-width: 8;
+  filter: blur(4px);
 }
 
 .fuse-link-origin {
   fill: var(--color-accent);
+  filter: drop-shadow(0 0 4px var(--color-accent));
 }
 
 .fuse-link-tip {
   fill: var(--color-base);
   stroke: var(--color-accent);
-  stroke-width: 1.75;
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 5px var(--color-accent));
 }
 
 .fuse-link.is-invalid .fuse-link-path,
@@ -784,4 +958,65 @@ body.slicing-active .react-flow__handle {
     transparent
   );
   animation: fuse-sheen 1.6s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------------------
+   Run Mode Button Styles & Dynamic Micro-Animations (All 3 Modes)
+--------------------------------------------------------------------------- */
+@keyframes mode-gradient-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* Button Classes */
+.fuse-btn-live {
+  position: relative;
+  background: linear-gradient(135deg, #e11d48 0%, #ea580c 48%, #be123c 100%) !important;
+  background-size: 200% 200% !important;
+  animation: mode-gradient-shift 4s ease infinite !important;
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+}
+.fuse-btn-live:hover {
+  background: linear-gradient(135deg, #f43f5e 0%, #f97316 48%, #e11d48 100%) !important;
+  background-size: 200% 200% !important;
+  animation: mode-gradient-shift 1.5s ease infinite !important;
+}
+
+.fuse-btn-sandbox {
+  position: relative;
+  background: linear-gradient(135deg, #d97706 0%, #f59e0b 48%, #b45309 100%) !important;
+  background-size: 200% 200% !important;
+  animation: mode-gradient-shift 4s ease infinite !important;
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+}
+.fuse-btn-sandbox:hover {
+  background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 48%, #d97706 100%) !important;
+  background-size: 200% 200% !important;
+  animation: mode-gradient-shift 1.5s ease infinite !important;
+}
+
+.fuse-btn-dryrun {
+  position: relative;
+  background: linear-gradient(135deg, #0284c7 0%, #06b6d4 48%, #0369a1 100%) !important;
+  background-size: 200% 200% !important;
+  animation: mode-gradient-shift 4s ease infinite !important;
+  color: #ffffff !important;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
+  border-color: rgba(255, 255, 255, 0.25) !important;
+}
+.fuse-btn-dryrun:hover {
+  background: linear-gradient(135deg, #0ea5e9 0%, #22d3ee 48%, #0284c7 100%) !important;
+  background-size: 200% 200% !important;
+  animation: mode-gradient-shift 1.5s ease infinite !important;
 }

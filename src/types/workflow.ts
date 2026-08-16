@@ -131,9 +131,13 @@ export type HttpData = BlockCommon & {
   workingDir: string | null;
 };
 
-/** A visually distinct block for writing notes or markdown to the canvas, skipped during execution. */
+/** A visually distinct block for writing notes or markdown, with variable substitution and variable output. */
 export type NoteData = BlockCommon & {
   text: string;
+  variable?: string;
+  width?: number;
+  height?: number;
+  capture?: boolean;
 };
 
 /** Reads a file from the filesystem and stores its contents in a variable. */
@@ -164,11 +168,13 @@ export type BumpVersionData = BlockCommon & {
   part: string;
 };
 
-/** Uses Apple on-device intelligence to summarize git diff into a commit message. */
+/** Uses AI / intelligence to summarize diffs, variables, or custom text prompts into structured output variables. */
 export type AiCommitData = BlockCommon & {
+  prompt?: string;
+  inputVariable?: string;
   variable: string;
-  scope: "staged" | "all";
-  style: "conventional" | "concise";
+  scope: "staged" | "all" | "variable";
+  style: "conventional" | "concise" | "detailed" | "custom";
   workingDir: string | null;
   continueOnError: boolean;
 };

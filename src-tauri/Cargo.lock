@@ -883,6 +883,7 @@ name = "fuse"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "regex",
  "semver",
  "serde",
  "serde_json",

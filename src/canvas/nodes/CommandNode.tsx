@@ -307,6 +307,23 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
               }
               // Let ⌘↵ bubble up to the global "run workflow" shortcut.
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) return;
+
+              if (e.key === "Backspace" || e.key === "Delete") {
+                const { nodes, edges } = useWorkflowStore.getState();
+                const selectedNodes = nodes.filter((n) => n.selected);
+                const selectedEdges = edges.filter((e) => e.selected);
+                if (
+                  selectedNodes.length > 1 ||
+                  selectedNodes.some((n) => n.type === "frame") ||
+                  selectedEdges.length > 0
+                ) {
+                  e.currentTarget.blur();
+                  e.preventDefault();
+                  useWorkflowStore.getState().deleteSelected();
+                  return;
+                }
+              }
+
               e.stopPropagation();
             }}
           />

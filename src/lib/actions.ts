@@ -26,6 +26,7 @@ import { fillPlaceholders, fillPlaceholdersRaw, placeholdersIn } from "@/lib/pla
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
 import { v4 as uuidv4 } from "uuid";
+import { parseFuseJson, prepareImportedNodesAndEdges } from "@/lib/jsonImporter";
 
 
 const LAST_OPENED_KEY = "fuse.lastWorkflowId";
@@ -367,19 +368,11 @@ function isNodeEffectivelyDisabled(node: PersistedNode, doc: WorkflowDocument): 
 
   const nodeFid = node.data && "frameId" in node.data ? (node.data.frameId as string) : null;
 
-  // Check incoming edges
+  // Check incoming edges: a node is effectively disabled if all its incoming edges are disabled
   const inEdges = doc.edges.filter(
     (e) => e.target === node.id || (nodeFid && e.target === nodeFid),
   );
   if (inEdges.length > 0 && inEdges.every((e) => e.disabled)) {
-    return true;
-  }
-
-  // Check outgoing edges
-  const outEdges = doc.edges.filter(
-    (e) => e.source === node.id || (nodeFid && e.source === nodeFid),
-  );
-  if (outEdges.length > 0 && outEdges.every((e) => e.disabled)) {
     return true;
   }
 
@@ -390,11 +383,15 @@ function isVariableProvidedUpstream(
   varName: string,
   targetNode: PersistedNode,
   doc: WorkflowDocument,
+  runTargetIds?: string[],
 ): boolean {
   // Find all active candidate producer nodes for this variable
   const producers = doc.nodes.filter((n) => {
     if (isNodeEffectivelyDisabled(n, doc)) return false;
     if (n.id === targetNode.id) return false;
+    // When running a subset of nodes, only producers that are actually
+    // in the run set can provide a value — the rest won't execute.
+    if (runTargetIds && !runTargetIds.includes(n.id)) return false;
 
     if (
       n.type === "input" ||
@@ -473,7 +470,7 @@ async function withRunInputs(
   for (const node of targets) {
     for (const text of placeholderFields(node)) {
       for (const name of placeholdersIn(text)) {
-        const provided = isVariableProvidedUpstream(name, node, doc);
+        const provided = isVariableProvidedUpstream(name, node, doc, targetIds);
         if (!provided && !fields.includes(name)) {
           fields.push(name);
         }
@@ -564,6 +561,14 @@ function filledNode(node: PersistedNode, values: InputValues): PersistedNode {
           ),
         },
       };
+    case "read_file":
+      return { ...node, data: { ...node.data, path: raw(node.data.path) } };
+    case "write_file":
+      return { ...node, data: { ...node.data, path: raw(node.data.path), content: raw(node.data.content) } };
+    case "set_variable":
+      return { ...node, data: { ...node.data, value: raw(node.data.value) } };
+    case "bump_version":
+      return { ...node, data: { ...node.data, variableIn: raw(node.data.variableIn) } };
     default:
       return node;
   }
@@ -573,6 +578,7 @@ export async function runCurrentWorkflow(mode?: import("@/types/workflow").RunMo
   const workflow = useWorkflowStore.getState();
   const runtime = useRuntimeStore.getState();
   const ui = useUIStore.getState();
+  const effectiveMode = mode ?? runtime.selectedRunMode ?? "live";
 
   if (runtime.running) return;
 
@@ -585,11 +591,11 @@ export async function runCurrentWorkflow(mode?: import("@/types/workflow").RunMo
   if (!doc) return;
 
   // Optimistic: closes the window where a double ⌘↵ could start two runs.
-  useRuntimeStore.setState({ running: true, error: null, runMode: mode ?? "live" });
+  useRuntimeStore.setState({ running: true, error: null, runMode: effectiveMode });
   ui.setOutputOpen(true);
 
   try {
-    await api.runWorkflow(doc, mode);
+    await api.runWorkflow(doc, effectiveMode);
   } catch (error) {
     useRuntimeStore.getState().abortLocalRun();
     ui.notify(message(error), "error");
@@ -605,70 +611,29 @@ export async function runFrame(frameId: string, mode?: import("@/types/workflow"
   const workflow = useWorkflowStore.getState();
   const runtime = useRuntimeStore.getState();
   const ui = useUIStore.getState();
+  const effectiveMode = mode ?? runtime.selectedRunMode ?? "live";
 
   if (runtime.running) return;
 
   const doc = workflow.toDocument();
 
-  // 1. Start with the source frame and all member blocks inside it
-  const reachableNodeIds = new Set<string>([frameId]);
-  for (const node of doc.nodes) {
-    if (node.data && "frameId" in node.data && node.data.frameId === frameId) {
-      reachableNodeIds.add(node.id);
-    }
-  }
+  // ONLY include the frame itself and member blocks strictly inside this frame
+  const frameNode = doc.nodes.find((n) => n.id === frameId);
+  const memberNodes = doc.nodes.filter(
+    (n) => n.data && "frameId" in n.data && n.data.frameId === frameId,
+  );
 
-  // 2. Traverse all reachable downstream elements (intermediate confirm/choice nodes,
-  // downstream frames, and their member blocks) across active edges
-  let added = true;
-  while (added) {
-    added = false;
-    for (const edge of doc.edges) {
-      if (edge.disabled) continue;
-
-      if (reachableNodeIds.has(edge.source)) {
-        if (!reachableNodeIds.has(edge.target)) {
-          reachableNodeIds.add(edge.target);
-          added = true;
-
-          const targetNode = doc.nodes.find((n) => n.id === edge.target);
-          // If the target is a frame, bring in all its member blocks
-          if (targetNode?.type === "frame") {
-            for (const member of doc.nodes) {
-              if (member.data && "frameId" in member.data && member.data.frameId === edge.target) {
-                if (!reachableNodeIds.has(member.id)) {
-                  reachableNodeIds.add(member.id);
-                  added = true;
-                }
-              }
-            }
-          }
-        }
-      }
-
-      // If a member block was reached, also include its parent frame for context/folder inheritance
-      const memberNode = doc.nodes.find((n) => n.id === edge.target);
-      if (memberNode?.data && "frameId" in memberNode.data && memberNode.data.frameId) {
-        const parentFid = memberNode.data.frameId as string;
-        if (!reachableNodeIds.has(parentFid)) {
-          reachableNodeIds.add(parentFid);
-          added = true;
-        }
-      }
-    }
-  }
-
-  const includedNodes = doc.nodes.filter((n) => reachableNodeIds.has(n.id));
-  const stepNodes = includedNodes.filter((n) => n.type !== "frame" && n.type !== "note");
-
-  if (stepNodes.length === 0) {
-    ui.notify("No blocks to run in this frame sequence", "error");
+  if (memberNodes.length === 0) {
+    ui.notify("No blocks inside this frame to run", "error");
     return;
   }
 
+  const includedNodes = frameNode ? [frameNode, ...memberNodes] : memberNodes;
   const includedNodeIds = new Set(includedNodes.map((n) => n.id));
+
+  // Only include active edges connecting blocks strictly within this frame
   const includedEdges = doc.edges.filter(
-    (e) => includedNodeIds.has(e.source) && includedNodeIds.has(e.target) && !e.disabled,
+    (e) => !e.disabled && includedNodeIds.has(e.source) && includedNodeIds.has(e.target),
   );
 
   const scoped = await withRunInputs(
@@ -677,15 +642,15 @@ export async function runFrame(frameId: string, mode?: import("@/types/workflow"
       nodes: includedNodes,
       edges: includedEdges,
     },
-    stepNodes.map((n) => n.id),
+    memberNodes.map((n) => n.id),
   );
   if (!scoped) return;
 
-  useRuntimeStore.setState({ running: true, error: null, runMode: mode ?? "live" });
+  useRuntimeStore.setState({ running: true, error: null, runMode: effectiveMode });
   ui.setOutputOpen(true);
 
   try {
-    await api.runWorkflow(scoped, mode);
+    await api.runWorkflow(scoped, effectiveMode);
   } catch (error) {
     useRuntimeStore.getState().abortLocalRun();
     ui.notify(message(error), "error");
@@ -920,3 +885,147 @@ export async function importBlocks(): Promise<void> {
     useUIStore.getState().notify(message(error), "error");
   }
 }
+
+export type ImportJsonMode = "new_workflow" | "insert_blocks" | "replace_current";
+
+/**
+ * Imports raw JSON text as a new workflow, inserted blocks, or by replacing the current canvas.
+ */
+export async function importJsonString(
+  jsonStr: string,
+  mode: ImportJsonMode,
+  options?: { position?: { x: number; y: number } },
+): Promise<boolean> {
+  try {
+    const res = parseFuseJson(jsonStr);
+    if (!res.valid || !res.data) {
+      throw new Error(res.error || "Failed to parse JSON.");
+    }
+
+    const { data } = res;
+
+    if (mode === "new_workflow") {
+      const newId = uuidv4();
+      const name = data.name
+        ? (data.name.endsWith(" (Imported)") ? data.name : `${data.name} (Imported)`)
+        : "Imported Workflow";
+
+      const doc: WorkflowDocument = {
+        id: newId,
+        name,
+        workingDir: data.workingDir ?? null,
+        nodes: data.nodes,
+        edges: data.edges,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      const saved = await api.saveWorkflow(doc);
+      useWorkflowStore.getState().loadDocument(saved);
+      useRuntimeStore.getState().clearAll();
+      useUIStore.getState().inspect(null, { open: false });
+      rememberLastOpened(saved.id);
+      useUIStore.getState().notify(`Imported “${saved.name}”`);
+      return true;
+    }
+
+    if (mode === "replace_current") {
+      const current = useWorkflowStore.getState();
+      useWorkflowStore.getState().beginEdit();
+
+      const doc: WorkflowDocument = {
+        id: current.id,
+        name: data.name || current.name,
+        workingDir: data.workingDir ?? current.workingDir,
+        nodes: data.nodes,
+        edges: data.edges,
+        createdAt: current.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      };
+
+      useWorkflowStore.getState().loadDocument(doc);
+      useWorkflowStore.setState({ dirty: true });
+      useUIStore
+        .getState()
+        .notify(`Workflow replaced with ${data.nodes.length} block${data.nodes.length === 1 ? "" : "s"}`);
+      return true;
+    }
+
+    if (mode === "insert_blocks") {
+      const pos = options?.position ?? getCanvasSpawnPoint();
+      const prepared = prepareImportedNodesAndEdges(data, pos);
+
+      useWorkflowStore.getState().beginEdit();
+
+      const currentNodes = useWorkflowStore.getState().nodes;
+      const currentEdges = useWorkflowStore.getState().edges;
+
+      const newNodes = prepared.nodes.map((n) => ({
+        id: n.id,
+        type: n.type,
+        position: n.position,
+        zIndex: n.type === "frame" ? 0 : 1,
+        data: n.data,
+      })) as import("@/types/workflow").FuseNode[];
+
+      const newEdges = prepared.edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle ?? SOURCE_PORT,
+        targetHandle: e.targetHandle ?? TARGET_PORT,
+        type: "flow" as const,
+        data: { disabled: !!e.disabled },
+      })) as import("@/types/workflow").FuseEdge[];
+
+      useWorkflowStore.setState({
+        nodes: [...currentNodes, ...newNodes],
+        edges: [...currentEdges, ...newEdges],
+        dirty: true,
+      });
+
+      useWorkflowStore.getState().recomputeFrames();
+      useUIStore
+        .getState()
+        .notify(`Added ${prepared.nodes.length} block${prepared.nodes.length === 1 ? "" : "s"} to canvas`);
+      return true;
+    }
+
+    return false;
+  } catch (error) {
+    useUIStore.getState().notify(message(error), "error");
+    return false;
+  }
+}
+
+/**
+ * Attempts to read the system clipboard and paste valid Fuse JSON directly onto the canvas.
+ */
+export async function pasteJsonFromClipboard(
+  position?: { x: number; y: number },
+): Promise<boolean> {
+  try {
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      useUIStore.getState().notify("Clipboard access not available in this browser window", "error");
+      return false;
+    }
+
+    const text = await navigator.clipboard.readText();
+    if (!text || !text.trim()) {
+      useUIStore.getState().notify("Clipboard is empty", "error");
+      return false;
+    }
+
+    const res = parseFuseJson(text);
+    if (!res.valid || !res.data) {
+      useUIStore.getState().notify(res.error || "Clipboard does not contain valid Fuse JSON", "error");
+      return false;
+    }
+
+    return await importJsonString(text, "insert_blocks", { position });
+  } catch (error) {
+    useUIStore.getState().notify(message(error), "error");
+    return false;
+  }
+}
+

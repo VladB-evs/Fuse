@@ -52,6 +52,9 @@ export type RuntimeState = {
    */
   prompt: PromptRequest | null;
 
+  selectedRunMode: RunMode;
+  setSelectedRunMode: (mode: RunMode) => void;
+
   applyEvents: (events: EngineEvent[]) => void;
   clearOutput: (nodeId: string) => void;
   clearAll: () => void;
@@ -67,6 +70,8 @@ export const useRuntimeStore = create<RuntimeState>()((set) => ({
   runId: null,
   running: false,
   runMode: "live",
+  selectedRunMode: "live",
+  setSelectedRunMode: (mode) => set({ selectedRunMode: mode }),
   sandboxDir: null,
   sandboxDiff: null,
   startedAt: null,

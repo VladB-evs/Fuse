@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Command } from "cmdk";
 import { useReactFlow } from "@xyflow/react";
 import {
+  Braces,
+  ClipboardPaste,
   FilePlus2,
   FolderOpen,
   Frame,
@@ -38,6 +40,7 @@ import {
   exportWorkflow,
   importWorkflow,
   importBlocks,
+  pasteJsonFromClipboard,
 } from "@/lib/actions";
 import { autoLayoutGraph } from "@/lib/layout";
 import { cn } from "@/lib/utils";
@@ -193,14 +196,29 @@ export function CommandPalette() {
                 >
                   Open workflow…
                 </Item>
+                <Item
+                  icon={Braces}
+                  onSelect={act(() => useUIStore.getState().setImportJsonOpen(true))}
+                  shortcut="⌘ I"
+                  hint="paste JSON text or from clipboard"
+                >
+                  Import from JSON / Clipboard…
+                </Item>
+                <Item
+                  icon={ClipboardPaste}
+                  onSelect={act(() => pasteJsonFromClipboard())}
+                  hint="paste blocks directly to canvas"
+                >
+                  Paste blocks from clipboard
+                </Item>
                 <Item icon={Download} onSelect={act(exportWorkflow)}>
                   Export workflow…
                 </Item>
                 <Item icon={Upload} onSelect={act(importWorkflow)}>
-                  Import workflow…
+                  Import workflow from file…
                 </Item>
                 <Item icon={FileJson} onSelect={act(importBlocks)}>
-                  Import blocks into canvas…
+                  Import blocks from file…
                 </Item>
               </Group>
 

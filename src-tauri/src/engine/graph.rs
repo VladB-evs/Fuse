@@ -22,7 +22,6 @@ pub struct Dag {
     order: Vec<String>,
     dependencies: HashMap<String, Vec<String>>,
     disabled_incoming: HashSet<String>,
-    disabled_outgoing: HashSet<String>,
 }
 
 impl Dag {
@@ -59,19 +58,13 @@ impl Dag {
         self.disabled_incoming.contains(id)
     }
 
-    /// True if the node has outgoing connections in the workflow, but all of them are disabled.
-    pub fn is_disabled_outgoing(&self, id: &str) -> bool {
-        self.disabled_outgoing.contains(id)
-    }
-
     /// Builds a DAG from a workflow document.
     pub fn build(workflow: &Workflow) -> Result<Self, GraphError> {
-        // Frames and Notes are scenery — they group blocks or provide notes, but they
-        // never execute. Every other kind is a step in the DAG.
+        // Frames are scenery — they group blocks, but they never execute. Every other kind is a step in the DAG.
         let step_nodes: Vec<&WorkflowNode> = workflow
             .nodes
             .iter()
-            .filter(|n| !n.is_frame() && !n.is_note())
+            .filter(|n| !n.is_frame())
             .collect();
 
         if step_nodes.is_empty() {
@@ -135,18 +128,11 @@ impl Dag {
         }
 
         let mut disabled_incoming: HashSet<String> = HashSet::new();
-        let mut disabled_outgoing: HashSet<String> = HashSet::new();
         for node in &step_nodes {
             let tot_in = total_incoming.get(node.id.as_str()).copied().unwrap_or(0);
             let act_in = active_incoming.get(node.id.as_str()).copied().unwrap_or(0);
             if tot_in > 0 && act_in == 0 {
                 disabled_incoming.insert(node.id.clone());
-            }
-
-            let tot_out = total_outgoing.get(node.id.as_str()).copied().unwrap_or(0);
-            let act_out = active_outgoing.get(node.id.as_str()).copied().unwrap_or(0);
-            if tot_out > 0 && act_out == 0 {
-                disabled_outgoing.insert(node.id.clone());
             }
         }
 
@@ -239,7 +225,6 @@ impl Dag {
             order,
             dependencies,
             disabled_incoming,
-            disabled_outgoing,
         })
     }
 }
@@ -465,15 +450,5 @@ mod tests {
         assert_eq!(dag.dependencies_of("b2"), &["confirm"]);
     }
 
-    #[test]
-    fn disabled_edges_are_tracked_as_disabled_outgoing() {
-        let mut e = edge("a", "b");
-        e.disabled = Some(true);
-        let wf = workflow(
-            vec![node("a", 0.0), node("b", 100.0)],
-            vec![e],
-        );
-        let dag = Dag::build(&wf).unwrap();
-        assert!(dag.is_disabled_outgoing("a"));
-    }
+
 }

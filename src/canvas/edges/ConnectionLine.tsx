@@ -28,8 +28,8 @@ export function ConnectionLine({
     <g className={cn("fuse-link", connectionStatus === "invalid" && "is-invalid")}>
       <path className="fuse-link-glow" d={path} />
       <path className="fuse-link-path" d={path} pathLength={1} />
-      <circle className="fuse-link-origin" cx={from.x} cy={from.y} r={3} />
-      <circle className="fuse-link-tip" cx={toX} cy={toY} r={3.5} />
+      <circle className="fuse-link-origin" cx={from.x} cy={from.y} r={4.2} />
+      <circle className="fuse-link-tip" cx={toX} cy={toY} r={4.8} />
     </g>
   );
 }

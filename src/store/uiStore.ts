@@ -30,6 +30,7 @@ export type UIState = {
   outputOpen: boolean;
   paletteOpen: boolean;
   docsOpen: boolean;
+  importJsonOpen: boolean;
   /** The rename dialog — the only place the workflow name is edited. */
   renameOpen: boolean;
   settingsOpen: boolean;
@@ -62,6 +63,7 @@ export type UIState = {
   setMinimapOpen: (open: boolean) => void;
   setPaletteOpen: (open: boolean) => void;
   setDocsOpen: (open: boolean) => void;
+  setImportJsonOpen: (open: boolean) => void;
   setSettingsOpen: (open: boolean) => void;
   setRenameOpen: (open: boolean) => void;
   setDropFrame: (frameId: string | null) => void;
@@ -84,6 +86,7 @@ export const useUIStore = create<UIState>()((set) => ({
   outputOpen: false,
   paletteOpen: false,
   docsOpen: false,
+  importJsonOpen: false,
   settingsOpen: false,
   renameOpen: false,
   dropFrameId: null,
@@ -117,6 +120,7 @@ export const useUIStore = create<UIState>()((set) => ({
   setMinimapOpen: (open) => set({ minimapOpen: open }),
   setPaletteOpen: (open) => set({ paletteOpen: open }),
   setDocsOpen: (open) => set({ docsOpen: open }),
+  setImportJsonOpen: (open) => set({ importJsonOpen: open }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setRenameOpen: (open) => set({ renameOpen: open }),
   setAvailableUpdate: (version) => set({ availableUpdate: version }),

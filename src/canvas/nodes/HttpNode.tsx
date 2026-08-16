@@ -2,7 +2,7 @@ import { memo } from "react";
 import { type NodeProps } from "@xyflow/react";
 import { Plus, X } from "lucide-react";
 import { useWorkflowStore } from "@/store/workflowStore";
-import { Choices, CodeArea, NodeShell, Note, TextField, Toggle } from "./NodeShell";
+import { Choices, CodeArea, NodeShell, Note, TextField, Toggle, fieldKeys } from "./NodeShell";
 import { cn } from "@/lib/utils";
 import type { HttpNodeType } from "@/types/workflow";
 
@@ -23,10 +23,17 @@ function HttpNodeImpl({ id, data, selected }: NodeProps<HttpNodeType>) {
 
   const headers = Object.entries(data.headers);
 
-  const replaceHeader = (oldKey: string, key: string, value: string) => {
-    const next = { ...data.headers };
-    delete next[oldKey];
-    if (key.trim()) next[key.trim()] = value;
+  const replaceHeader = (oldKey: string, nextKey: string, nextValue: string) => {
+    beginEdit();
+    const next: Record<string, string> = {};
+    for (const [k, v] of headers) {
+      if (k === oldKey) {
+        if (nextKey) next[nextKey] = nextValue;
+      } else {
+        next[k] = v;
+      }
+    }
+    if (!oldKey && nextKey) next[nextKey] = nextValue;
     updateNodeData(id, { headers: next });
   };
 
@@ -90,7 +97,7 @@ function HttpNodeImpl({ id, data, selected }: NodeProps<HttpNodeType>) {
                   spellCheck={false}
                   onFocus={beginEdit}
                   onChange={(e) => replaceHeader(key, e.currentTarget.value, value)}
-                  onKeyDown={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => fieldKeys(e)}
                   className={FIELD}
                 />
                 <span className="text-[10px] text-fg-subtle">:</span>
@@ -104,7 +111,7 @@ function HttpNodeImpl({ id, data, selected }: NodeProps<HttpNodeType>) {
                       headers: { ...data.headers, [key]: e.currentTarget.value },
                     })
                   }
-                  onKeyDown={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => fieldKeys(e)}
                   className={cn(FIELD, "flex-1")}
                 />
                 <button

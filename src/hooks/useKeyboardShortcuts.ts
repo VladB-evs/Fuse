@@ -8,22 +8,51 @@ import {
   addFrameBlock,
   createNewWorkflow,
   disconnectSelection,
+  getCanvasSpawnPoint,
+  importJsonString,
   openNodePicker,
+  pasteJsonFromClipboard,
   runCurrentWorkflow,
   saveCurrentWorkflow,
   stopCurrentRun,
 } from "@/lib/actions";
+import { parseFuseJson } from "@/lib/jsonImporter";
+
 
 /**
- * Text editing always wins. Anything that would clash with typing inside a
- * command (undo, delete, plain letters) is suppressed while an input has
- * focus — only unambiguous ⌘ combinations pass through.
+ * Text editing always wins when focused on a single active block.
+ * When multiple items or frames are selected, canvas commands (like Delete) take precedence.
  */
 function isTyping(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   if (!el) return false;
   const tag = el.tagName;
-  return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
+  if (tag !== "INPUT" && tag !== "TEXTAREA" && !el.isContentEditable) return false;
+
+  const { nodes, edges } = useWorkflowStore.getState();
+  const selectedNodes = nodes.filter((n) => n.selected);
+  const selectedEdges = edges.filter((e) => e.selected);
+
+  // If multiple items are selected, or any frame is selected, or edges are selected,
+  // the user is interacting with canvas elements rather than typing into a single input
+  if (
+    selectedNodes.length > 1 ||
+    selectedNodes.some((n) => n.type === "frame") ||
+    selectedEdges.length > 0
+  ) {
+    return false;
+  }
+
+  // If exactly one node is selected, check if the focused element is within that node
+  const singleSelected = selectedNodes[0];
+  if (selectedNodes.length === 1 && singleSelected) {
+    const nodeEl = document.querySelector(`.react-flow__node[data-id="${singleSelected.id}"]`);
+    if (!nodeEl || !nodeEl.contains(el)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export function useKeyboardShortcuts() {
@@ -36,8 +65,25 @@ export function useKeyboardShortcuts() {
     const onMove = (event: MouseEvent) => {
       pointer.current = { x: event.clientX, y: event.clientY };
     };
+    const onPaste = (event: ClipboardEvent) => {
+      if (isTyping(event.target)) return;
+      const text = event.clipboardData?.getData("text");
+      if (!text || !text.trim()) return;
+
+      const res = parseFuseJson(text);
+      if (res.valid && res.data) {
+        event.preventDefault();
+        void importJsonString(text, "insert_blocks", {
+          position: pointer.current ? getCanvasSpawnPoint(pointer.current) : undefined,
+        });
+      }
+    };
     window.addEventListener("mousemove", onMove);
-    return () => window.removeEventListener("mousemove", onMove);
+    window.addEventListener("paste", onPaste);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("paste", onPaste);
+    };
   }, []);
 
   useEffect(() => {
@@ -50,6 +96,12 @@ export function useKeyboardShortcuts() {
       if (mod && event.key === "k") {
         event.preventDefault();
         ui.setPaletteOpen(!ui.paletteOpen);
+        return;
+      }
+
+      if (mod && event.key.toLowerCase() === "i") {
+        event.preventDefault();
+        ui.setImportJsonOpen(true);
         return;
       }
 
@@ -140,8 +192,22 @@ export function useKeyboardShortcuts() {
         return;
       }
 
+      if (mod && event.key.toLowerCase() === "v") {
+        event.preventDefault();
+        void pasteJsonFromClipboard(
+          pointer.current ? getCanvasSpawnPoint(pointer.current) : undefined,
+        );
+        return;
+      }
+
       if (!mod && (event.key === "Backspace" || event.key === "Delete")) {
         event.preventDefault();
+        if (
+          document.activeElement instanceof HTMLElement &&
+          (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA")
+        ) {
+          document.activeElement.blur();
+        }
         useWorkflowStore.getState().deleteSelected();
         return;
       }

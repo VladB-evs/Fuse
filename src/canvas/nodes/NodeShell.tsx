@@ -38,6 +38,9 @@ export function NodeShell({
   runnable = true,
   ports,
   disabled: disabledProp,
+  className,
+  style,
+  resizeControl,
   children,
 }: {
   id: string;
@@ -52,6 +55,9 @@ export function NodeShell({
   /** Custom connection ports, for kinds that have more than one way out. */
   ports?: ReactNode;
   disabled?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+  resizeControl?: ReactNode;
   children: ReactNode;
 }) {
   const entry = catalogEntry(kind);
@@ -82,10 +88,13 @@ export function NodeShell({
   })();
 
   return (
-    <div className="group relative w-[288px]">
+    <div
+      className={cn("group relative", style?.width ? "" : "w-[288px]", className)}
+      style={style}
+    >
       <div
         className={cn(
-          "fuse-card relative overflow-hidden rounded-node border bg-base",
+          "fuse-card relative flex flex-col w-full h-full rounded-node border bg-base",
           "transition-[border-color,box-shadow,opacity,filter] duration-150 ease-out",
           "border-line",
           status === "skipped" && "opacity-55",
@@ -101,7 +110,7 @@ export function NodeShell({
       >
         <div
           className={cn(
-            "flex h-[30px] items-center gap-1.5 border-b border-line/70 px-2.5",
+            "flex h-[30px] shrink-0 items-center gap-1.5 border-b border-line/70 px-2.5",
             ACCENT_TINT[entry.accent],
           )}
         >
@@ -113,64 +122,68 @@ export function NodeShell({
               defaultValue={label}
               autoFocus
               onFocus={(e) => {
-                beginEdit();
-                e.currentTarget.select();
+                const target = e.currentTarget;
+                setTimeout(() => target.select(), 0);
               }}
               onBlur={(e) => {
-                onRename(e.currentTarget.value.trim() || entry.label);
+                const trimmed = e.currentTarget.value.trim();
+                if (trimmed && trimmed !== label) {
+                  beginEdit();
+                  onRename(trimmed);
+                }
                 setEditingLabel(false);
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
-                e.stopPropagation();
+                if (e.key === "Enter" || e.key === "Escape") {
+                  e.currentTarget.blur();
+                }
               }}
             />
           ) : (
-            <span
-              className="min-w-0 flex-1 truncate text-[12px] font-medium text-fg"
-              onDoubleClick={() => setEditingLabel(true)}
-              title="Double-click to rename"
-            >
-              {label || entry.label}
-            </span>
-          )}
-
-          {disabled && (
             <button
               type="button"
-              title="Step is disabled. Click to re-enable."
-              onClick={(e) => {
-                e.stopPropagation();
-                useWorkflowStore.getState().toggleNodeDisabled(id);
-              }}
-              className="nodrag flex shrink-0 items-center gap-1.5 rounded-full bg-accent px-2.5 py-0.5 text-[9.5px] font-bold text-white shadow-[0_0_10px_rgba(91,108,255,0.6)] hover:bg-accent/90 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+              onDoubleClick={() => setEditingLabel(true)}
+              title="Double-click to rename"
+              className="min-w-0 flex-1 truncate text-left text-[12px] font-medium text-fg hover:text-fg-strong"
             >
-              <Power size={9} strokeWidth={2.8} />
-              <span>Enable</span>
+              {label}
             </button>
           )}
 
-          {frameId && !disabled && (
+          {disabled ? (
             <HeaderButton
-              label={frame ? `Take out of “${frame.data.label}”` : "Take out of frame"}
-              onClick={() => releaseBlockFromFrame(id)}
+              label="Enable block"
+              onClick={() => {
+                beginEdit();
+                useWorkflowStore.getState().updateNodeData(id, { disabled: false });
+              }}
             >
-              <Eject size={10} strokeWidth={2} />
+              <Power size={11} strokeWidth={1.75} className="text-accent" />
             </HeaderButton>
-          )}
-
-          {runnable && (
-            <HeaderButton
-              label="Run this block"
-              disabled={runActive || disabled}
-              onClick={() => void runSingleNode(id)}
-            >
-              <Play size={9} fill="currentColor" strokeWidth={0} />
-            </HeaderButton>
+          ) : (
+            <>
+              {frameId && (
+                <HeaderButton
+                  label="Remove from frame"
+                  onClick={() => releaseBlockFromFrame(id)}
+                >
+                  <Eject size={11} strokeWidth={1.75} />
+                </HeaderButton>
+              )}
+              {runnable && (
+                <HeaderButton
+                  label={`Run “${label}” alone`}
+                  onClick={() => void runSingleNode(id)}
+                  disabled={runActive}
+                >
+                  <Play size={10} strokeWidth={2} />
+                </HeaderButton>
+              )}
+            </>
           )}
         </div>
 
-        <div className="space-y-2 px-2.5 py-2.5">{children}</div>
+        <div className="flex-1 min-h-0 space-y-2 px-2.5 py-2.5 flex flex-col">{children}</div>
 
         <div className="flex h-[26px] items-center gap-2 border-t border-line/70 px-2.5">
           {workingDir !== undefined && workingDir !== null ? (
@@ -231,6 +244,8 @@ export function NodeShell({
           )}
           <StatusBadge status={status} label={statusLabel} />
         </div>
+
+        {resizeControl}
       </div>
 
       {ports ?? (
@@ -288,8 +303,8 @@ function HeaderButton({
 // Shared so every block's body reads the same way: a label on the left, the
 // thing you edit on the right, and no chrome competing with the canvas.
 
-/** Stop canvas shortcuts firing while a field has focus. */
-function fieldKeys(
+/** Stop canvas shortcuts firing while a field has focus, unless multiple canvas items are selected. */
+export function fieldKeys(
   event: React.KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>,
   multiline = false,
 ) {
@@ -302,6 +317,23 @@ function fieldKeys(
     return;
   }
   if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) return;
+
+  if (event.key === "Backspace" || event.key === "Delete") {
+    const { nodes, edges } = useWorkflowStore.getState();
+    const selectedNodes = nodes.filter((n) => n.selected);
+    const selectedEdges = edges.filter((e) => e.selected);
+    if (
+      selectedNodes.length > 1 ||
+      selectedNodes.some((n) => n.type === "frame") ||
+      selectedEdges.length > 0
+    ) {
+      event.currentTarget.blur();
+      event.preventDefault();
+      useWorkflowStore.getState().deleteSelected();
+      return;
+    }
+  }
+
   event.stopPropagation();
 }
 

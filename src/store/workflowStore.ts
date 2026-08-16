@@ -15,10 +15,10 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import { newId } from "@/lib/id";
-import { placeholdersIn } from "@/lib/placeholders";
 import { calculateSpliceLayout } from "@/lib/edgeSplice";
 import { SOURCE_PORT, TARGET_PORT } from "@/canvas/ports";
 import {
+  centreOf,
   frameAt,
   frameOnDrop,
   frameRect,
@@ -29,7 +29,6 @@ import {
 } from "@/lib/frames";
 import {
   isBlockNode,
-  isCommandNode,
   isFrameNode,
   type BlockData,
   type BlockKind,
@@ -227,6 +226,32 @@ function fitFrames(
   return changed ? next : nodes;
 }
 
+/**
+ * Recursively collects all member block nodes and nested child nodes belonging
+ * to any frame in the doomed set so deleting a frame also deletes all of its contents.
+ */
+function collectDoomedWithFrameMembers(nodes: FuseNode[], initialDoomed: Set<string>): Set<string> {
+  const doomed = new Set(initialDoomed);
+  let added = true;
+  while (added) {
+    added = false;
+    for (const node of nodes) {
+      if (!doomed.has(node.id)) {
+        if (
+          node.data &&
+          "frameId" in node.data &&
+          typeof node.data.frameId === "string" &&
+          doomed.has(node.data.frameId)
+        ) {
+          doomed.add(node.id);
+          added = true;
+        }
+      }
+    }
+  }
+  return doomed;
+}
+
 /** Deleting a frame frees its blocks rather than leaving them pointing at a ghost. */
 function released(nodes: FuseNode[], removedIds: Set<string>): FuseNode[] {
   return nodes.map((node) =>
@@ -373,8 +398,10 @@ export function emptyBlock(kind: BlockKind): BlockData {
       };
     case "ai_commit":
       return {
-        label: "AI Commit Summary",
+        label: "AI Summarizer",
         frameId: null,
+        prompt: "Summarize the changes into a concise conventional git commit message",
+        inputVariable: "",
         variable: "commit_message",
         scope: "staged",
         style: "conventional",
@@ -527,13 +554,30 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
       }),
     );
 
+    const droppedBlocks = nodes.filter(
+      (n) => isBlockNode(n) && !carried.has(n.id) && dropped.includes(n.id),
+    ) as BlockNodeType[];
+
+    if (droppedBlocks.length === 0) return nodes;
+
+    // If multiple blocks are dropped together, check if any of them landed in a frame
+    let targetFrameId: string | null = null;
+    for (const block of droppedBlocks) {
+      const landed = frameAt(nodes, centreOf(block));
+      if (landed) {
+        targetFrameId = landed.id;
+        break;
+      }
+    }
+
     let changed = false;
     const next = nodes.map((node) => {
       if (!isBlockNode(node) || carried.has(node.id) || !dropped.includes(node.id)) {
         return node;
       }
 
-      const frameId = frameOnDrop(node, nodes);
+      // If a group was dropped into a frame, all blocks in the group join that frame together
+      const frameId = targetFrameId !== null ? targetFrameId : frameOnDrop(node, nodes);
       if (frameId === node.data.frameId) return node;
 
       changed = true;
@@ -621,7 +665,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
     frameOnDropFor: (nodeId) => {
       const nodes = get().nodes;
       const block = nodes.find((n) => n.id === nodeId);
-      if (!block || !isCommandNode(block)) return null;
+      if (!block || !isBlockNode(block)) return null;
       return frameOnDrop(block, nodes);
     },
 
@@ -686,81 +730,10 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
       if (duplicate) return;
 
       pushHistory();
-      set((state) => {
-        // Include the new edge so the BFS can traverse it.
-        const newEdge = withPorts({ ...connection, id: newId(), type: "flow" });
-        const allEdges = addEdge(newEdge, state.edges);
-
-        let newNodes = state.nodes;
-        const targetNode = state.nodes.find((n) => n.id === connection.target);
-
-        // If the target is a command node with unresolved placeholders, walk
-        // upstream to find the closest variable-producing node and auto-bind.
-        if (targetNode && targetNode.type === "command" && targetNode.data.command) {
-          const placeholders = placeholdersIn(targetNode.data.command as string);
-
-          // Collect all variables already produced by other nodes.
-          const knownVars = new Set<string>();
-          for (const n of state.nodes) {
-            if (n.type === "input" || n.type === "capture" || n.type === "read_file" || n.type === "set_variable" || n.type === "http" || n.type === "ai_commit") {
-              const v = (n.data as any).variable?.trim();
-              if (v) knownVars.add(v);
-            } else if (n.type === "bump_version") {
-              const v = (n.data as any).variableOut?.trim();
-              if (v) knownVars.add(v);
-            }
-          }
-
-          // Find unbound placeholders — ones that don't match any known variable.
-          const unbound = placeholders.filter((p) => !knownVars.has(p));
-
-          if (unbound.length >= 1) {
-            // BFS upstream from the target to find the closest variable producer.
-            const visited = new Set<string>();
-            const queue = [connection.target!];
-            let upstreamVar: string | null = null;
-
-            while (queue.length > 0 && !upstreamVar) {
-              const current = queue.shift()!;
-              if (visited.has(current)) continue;
-              visited.add(current);
-
-              const incoming = allEdges.filter((e) => e.target === current);
-              for (const edge of incoming) {
-                const src = state.nodes.find((n) => n.id === edge.source);
-                if (!src) continue;
-                if (src.type === "input" || src.type === "capture" || src.type === "read_file" || src.type === "set_variable" || src.type === "http" || src.type === "ai_commit") {
-                  upstreamVar = (src.data as any).variable?.trim() || null;
-                } else if (src.type === "bump_version") {
-                  upstreamVar = (src.data as any).variableOut?.trim() || null;
-                }
-                if (upstreamVar) break;
-                queue.push(src.id);
-              }
-            }
-
-            if (upstreamVar) {
-              // Replace the first unbound placeholder with the upstream variable.
-              const p = unbound[0]!;
-              const newCommand = (targetNode.data.command as string).replace(
-                new RegExp(`\\{\\{\\s*${p}\\s*\\}\\}`, "g"),
-                `{{${upstreamVar}}}`
-              );
-              newNodes = state.nodes.map((n) =>
-                n.id === targetNode.id
-                  ? ({ ...n, data: { ...n.data, command: newCommand } } as FuseNode)
-                  : n
-              );
-            }
-          }
-        }
-
-        return {
-          edges: allEdges,
-          nodes: newNodes,
-          dirty: true,
-        };
-      });
+      set((state) => ({
+        edges: addEdge(withPorts({ ...connection, id: newId(), type: "flow" }), state.edges),
+        dirty: true,
+      }));
     },
 
     disconnect: (edgeId) => {
@@ -1037,7 +1010,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
     deleteNodes: (ids) => {
       if (ids.length === 0) return;
       pushHistory();
-      const doomed = new Set(ids);
+      const doomed = collectDoomedWithFrameMembers(get().nodes, new Set(ids));
       set((state) => ({
         nodes: fitFrames(released(state.nodes.filter((n) => !doomed.has(n.id)), doomed)),
         edges: state.edges.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)),
@@ -1052,7 +1025,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
       if (nodeIds.length === 0 && edgeIds.length === 0) return;
 
       pushHistory();
-      const doomed = new Set(nodeIds);
+      const doomed = collectDoomedWithFrameMembers(state.nodes, new Set(nodeIds));
       const doomedEdges = new Set(edgeIds);
       set((s) => ({
         nodes: fitFrames(

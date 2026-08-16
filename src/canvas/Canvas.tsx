@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { createPortal } from "react-dom";
 import {
   Background,
   BackgroundVariant,
@@ -20,6 +21,8 @@ import { FRAME_THEMES } from "./nodes/FrameNode";
 import { FlowEdge } from "./edges/FlowEdge";
 import { ConnectionLine } from "./edges/ConnectionLine";
 import { LaserSlicer } from "./LaserSlicer";
+import { DragCountBadge } from "./DragCountBadge";
+import { useDragCollection } from "./useDragCollection";
 import { SOURCE_PORT, TARGET_PORT } from "./ports";
 import { GRID, useWorkflowStore } from "@/store/workflowStore";
 import { useRuntimeStore } from "@/store/runtimeStore";
@@ -184,7 +187,15 @@ export function Canvas() {
     [screenToFlowPosition, getNodes, onConnect],
   );
 
-  const handleNodeClick = useCallback((_: ReactMouseEvent, node: FuseNode) => {
+  const handleNodeClick = useCallback((e: ReactMouseEvent, node: FuseNode) => {
+    if (
+      document.activeElement instanceof HTMLElement &&
+      (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA") &&
+      document.activeElement !== e.target
+    ) {
+      document.activeElement.blur();
+    }
+
     // Frames hold no output of their own.
     if (node.type === "frame") return;
 
@@ -194,30 +205,54 @@ export function Canvas() {
     useUIStore.getState().inspect(node.id, hasOutput ? { open: true } : undefined);
   }, []);
 
+  const {
+    collectionState,
+    handleNodeDragStart: onCollectionDragStart,
+    handleNodeDrag: onCollectionDrag,
+    handleNodeDragStop: onCollectionDragStop,
+  } = useDragCollection();
+
+  const handleNodeDragStart = useCallback(
+    (e: ReactMouseEvent | MouseEvent | TouchEvent | unknown, node: FuseNode, allNodes?: FuseNode[]) => {
+      onCollectionDragStart(e, node, allNodes || useWorkflowStore.getState().nodes);
+    },
+    [onCollectionDragStart],
+  );
+
   /**
    * Light up the frame a block would *join*, so joining reads as a deliberate
    * drop rather than something that happened to the block. A block hovering
    * over the frame it already belongs to is not news, so that stays quiet.
    */
-  const handleNodeDrag = useCallback((_: MouseEvent | TouchEvent, node: FuseNode) => {
-    if (node.type === "frame") return;
-    const wf = useWorkflowStore.getState();
-    const targetFrame = wf.frameOnDropFor(node.id);
-    useUIStore.getState().setDropFrame(targetFrame === node.data.frameId ? null : targetFrame);
+  const handleNodeDrag = useCallback(
+    (e: ReactMouseEvent | MouseEvent | TouchEvent | unknown, node: FuseNode, allNodes?: FuseNode[]) => {
+      onCollectionDrag(e, node, allNodes || useWorkflowStore.getState().nodes);
 
-    const targetEdge = findIntersectingEdge(node, wf.edges, wf.nodes);
-    useUIStore.getState().setDropEdge(targetEdge ? targetEdge.id : null);
-  }, []);
+      if (node.type === "frame") return;
+      const wf = useWorkflowStore.getState();
+      const targetFrame = wf.frameOnDropFor(node.id);
+      useUIStore.getState().setDropFrame(targetFrame === node.data.frameId ? null : targetFrame);
 
-  const handleNodeDragStop = useCallback((_: MouseEvent | TouchEvent, node: FuseNode) => {
-    const dropEdgeId = useUIStore.getState().dropEdgeId;
-    if (dropEdgeId && node && node.type !== "frame") {
-      useWorkflowStore.getState().spliceNodeIntoEdge(dropEdgeId, node.id);
-      useUIStore.getState().notify("Node inserted into connection");
-    }
-    useUIStore.getState().setDropFrame(null);
-    useUIStore.getState().setDropEdge(null);
-  }, []);
+      const targetEdge = findIntersectingEdge(node, wf.edges, wf.nodes);
+      useUIStore.getState().setDropEdge(targetEdge ? targetEdge.id : null);
+    },
+    [onCollectionDrag, getNodes],
+  );
+
+  const handleNodeDragStop = useCallback(
+    (e: ReactMouseEvent | MouseEvent | TouchEvent | unknown, node: FuseNode) => {
+      onCollectionDragStop(e, node, () => {
+        const dropEdgeId = useUIStore.getState().dropEdgeId;
+        if (dropEdgeId && node && node.type !== "frame") {
+          useWorkflowStore.getState().spliceNodeIntoEdge(dropEdgeId, node.id);
+          useUIStore.getState().notify("Node inserted into connection");
+        }
+        useUIStore.getState().setDropFrame(null);
+        useUIStore.getState().setDropEdge(null);
+      });
+    },
+    [onCollectionDragStop],
+  );
 
   /**
    * Dragging a wire's end off onto empty canvas cuts it.
@@ -262,7 +297,11 @@ export function Canvas() {
 
   return (
     <div
-      className={cn("relative min-h-0 flex-1", connecting && "is-connecting")}
+      className={cn(
+        "relative min-h-0 flex-1",
+        connecting && "is-connecting",
+        collectionState.active && "is-collecting-nodes",
+      )}
     >
       <ReactFlow
         nodes={nodes}
@@ -279,16 +318,26 @@ export function Canvas() {
         onReconnectEnd={handleReconnectEnd}
         reconnectRadius={16}
         onNodeClick={handleNodeClick}
+        onNodeDragStart={handleNodeDragStart}
         onNodeDrag={handleNodeDrag}
         onNodeDragStop={handleNodeDragStop}
+        onSelectionDragStart={(e, ns) => {
+          window.getSelection()?.removeAllRanges();
+          handleNodeDragStart(e, ns[0] as FuseNode, ns as FuseNode[]);
+        }}
+        onSelectionDrag={(e, ns) => {
+          window.getSelection()?.removeAllRanges();
+          handleNodeDrag(e, ns[0] as FuseNode, ns as FuseNode[]);
+        }}
+        onSelectionDragStop={(e, ns) => handleNodeDragStop(e, ns[0] as FuseNode)}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         defaultEdgeOptions={{ 
           type: "flow",
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            width: 14,
-            height: 14,
+            width: 18,
+            height: 18,
             color: "currentColor",
           }
         }}
@@ -314,9 +363,32 @@ export function Canvas() {
         panOnDrag={ctrlHeld ? false : true}
         nodesDraggable={!ctrlHeld}
         elementsSelectable={!ctrlHeld}
-        onSelectionStart={() => window.getSelection()?.removeAllRanges()}
-        onSelectionDrag={() => window.getSelection()?.removeAllRanges()}
-        onSelectionEnd={() => window.getSelection()?.removeAllRanges()}
+        onPaneClick={() => {
+          if (
+            document.activeElement instanceof HTMLElement &&
+            (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA")
+          ) {
+            document.activeElement.blur();
+          }
+        }}
+        onSelectionStart={() => {
+          window.getSelection()?.removeAllRanges();
+          if (
+            document.activeElement instanceof HTMLElement &&
+            (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA")
+          ) {
+            document.activeElement.blur();
+          }
+        }}
+        onSelectionEnd={() => {
+          window.getSelection()?.removeAllRanges();
+          if (
+            document.activeElement instanceof HTMLElement &&
+            (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "TEXTAREA")
+          ) {
+            document.activeElement.blur();
+          }
+        }}
         panActivationKeyCode="Space"
         zoomActivationKeyCode="Meta"
         // Trackpad-native: two fingers pan, pinch zooms — like Figma on a Mac.
@@ -400,6 +472,11 @@ export function Canvas() {
         <LaserSlicer />
       </ReactFlow>
 
+      {collectionState.active && collectionState.leaderId && collectionState.count >= 2 && (() => {
+        const leaderEl = document.querySelector(`.react-flow__node[data-id="${collectionState.leaderId}"]`);
+        return leaderEl ? createPortal(<DragCountBadge count={collectionState.count} />, leaderEl) : null;
+      })()}
+
       {nodes.length === 0 && <EmptyState />}
     </div>
   );
@@ -443,6 +520,9 @@ function EmptyState() {
         </p>
         <p className="flex items-center gap-1.5 text-[11px] text-fg-subtle/80">
           Drag from the edge of a block to wire it to the next one
+        </p>
+        <p className="flex items-center gap-1.5 text-[10.5px] text-fg-subtle/60">
+          Paste JSON directly with <Kbd>⌘</Kbd><Kbd>V</Kbd> or import with <Kbd>⌘</Kbd><Kbd>I</Kbd>
         </p>
       </div>
     </div>

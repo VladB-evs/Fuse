@@ -10,7 +10,7 @@
 
 use super::events::{EngineEvent, EventSink, NodeStatus, OutputStream, RunMode};
 use super::process::{self, CommandSpec, RunControl};
-use crate::model::{AiCommitData, CaptureData, ConditionData, HttpData, ScriptData, WaitData, ReadFileData, WriteFileData, SetVariableData, now_ms};
+use crate::model::{AiCommitData, CaptureData, ConditionData, HttpData, ScriptData, WaitData, ReadFileData, WriteFileData, SetVariableData, NoteData, now_ms};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -635,6 +635,7 @@ pub(crate) async fn run_read_file(
     data: &ReadFileData,
     path: String,
     working_dir: PathBuf,
+    sandbox_ctx: Option<&super::SandboxContext>,
     reporter: &Reporter<'_>,
     run_mode: RunMode,
 ) -> StepOutcome {
@@ -650,11 +651,16 @@ pub(crate) async fn run_read_file(
         return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
     }
 
-    let absolute = if std::path::Path::new(&path).is_absolute() {
+    let mut absolute = if std::path::Path::new(&path).is_absolute() {
         PathBuf::from(path)
     } else {
         working_dir.join(path)
     };
+    if let Some(sb) = sandbox_ctx {
+        if let Some(remapped) = sb.remap_dir(Some(&absolute)) {
+            absolute = remapped;
+        }
+    }
 
     if run_mode == RunMode::DryRun {
         reporter.out(format!("📋 [DRY RUN] Would read file: {}", absolute.display()));
@@ -693,6 +699,7 @@ pub(crate) async fn run_write_file(
     path: String,
     content: String,
     working_dir: PathBuf,
+    sandbox_ctx: Option<&super::SandboxContext>,
     reporter: &Reporter<'_>,
     run_mode: RunMode,
 ) -> StepOutcome {
@@ -703,11 +710,16 @@ pub(crate) async fn run_write_file(
         return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
     }
 
-    let absolute = if std::path::Path::new(&path).is_absolute() {
+    let mut absolute = if std::path::Path::new(&path).is_absolute() {
         PathBuf::from(path)
     } else {
         working_dir.join(path)
     };
+    if let Some(sb) = sandbox_ctx {
+        if let Some(remapped) = sb.remap_dir(Some(&absolute)) {
+            absolute = remapped;
+        }
+    }
 
     if run_mode == RunMode::DryRun {
         reporter.out(format!(
@@ -841,6 +853,8 @@ pub(crate) async fn run_bump_version(
 
 pub(crate) async fn run_ai_commit(
     data: &AiCommitData,
+    resolved_prompt: Option<String>,
+    resolved_input: Option<String>,
     control: &RunControl,
     working_dir: PathBuf,
     reporter: &Reporter<'_>,
@@ -853,10 +867,19 @@ pub(crate) async fn run_ai_commit(
         return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
     }
 
+    let prompt = resolved_prompt
+        .filter(|p| !p.trim().is_empty())
+        .or_else(|| data.prompt.clone())
+        .unwrap_or_else(|| "Summarize the changes into a concise conventional git commit message".to_string());
+
     if run_mode == RunMode::DryRun {
-        reporter.out(format!("📋 [DRY RUN] Would inspect git diff and generate commit message in: {}", process::display_dir(&working_dir)));
-        let simulated = "feat: simulated commit message from dry run".to_string();
-        reporter.out(format!("✨ [DRY RUN] Generated commit message: \"{}\"", simulated));
+        reporter.out(format!("📋 [DRY RUN] Would process input and generate summary with prompt: \"{}\"", prompt));
+        let simulated = if data.style == "concise" {
+            "Simulated concise summary from dry run".to_string()
+        } else {
+            "feat(core): simulated commit message from dry run".to_string()
+        };
+        reporter.out(format!("✨ [DRY RUN] Generated result: \"{}\"", simulated));
         if !sleep_unless_stopped(0.35, control).await {
             return StepOutcome::plain(reporter.finished(NodeStatus::Cancelled, None));
         }
@@ -867,25 +890,30 @@ pub(crate) async fn run_ai_commit(
         };
     }
 
-    reporter.out(format!("Inspecting repository changes in {}...", process::display_dir(&working_dir)));
+    // Determine input source:
+    // 1. Direct input text passed from an incoming variable/wire (e.g. from git diff or capture node)
+    // 2. Fall back to inspecting git diff/status in the working directory
+    let (input_content, is_live_repo) = if let Some(ref custom_in) = resolved_input {
+        if !custom_in.trim().is_empty() {
+            (custom_in.trim().to_string(), false)
+        } else {
+            (String::new(), true)
+        }
+    } else {
+        (String::new(), true)
+    };
 
-    // 1. Check staged changes first
-    let mut diff_ran = run_line(
-        "git diff --cached".to_string(),
-        working_dir.clone(),
-        Vec::new(),
-        control,
-        reporter,
-        run_mode,
-        false,
-        true,
-    )
-    .await;
-
-    // If scope is "all" or staged diff is empty, also check working tree diff
-    if data.scope == "all" || diff_ran.stdout.trim().is_empty() {
-        let all_diff_ran = run_line(
-            "git diff HEAD".to_string(),
+    let final_summary = if !is_live_repo && !input_content.is_empty() {
+        if let Some(ai_result) = call_apple_intelligence(&input_content, "", &prompt, &data.style, reporter).await {
+            ai_result
+        } else if input_content.contains("diff --git") || input_content.contains("+++") || input_content.contains("@@") {
+            summarize_diff(&input_content, "", &prompt, &data.style)
+        } else {
+            summarize_general_text(&input_content, &prompt, &data.style)
+        }
+    } else {
+        let mut diff_ran = run_line(
+            "git diff --cached".to_string(),
             working_dir.clone(),
             Vec::new(),
             control,
@@ -896,11 +924,9 @@ pub(crate) async fn run_ai_commit(
         )
         .await;
 
-        if !all_diff_ran.stdout.trim().is_empty() {
-            diff_ran = all_diff_ran;
-        } else {
-            let working_diff = run_line(
-                "git diff".to_string(),
+        if data.scope == "all" || diff_ran.stdout.trim().is_empty() {
+            let all_diff_ran = run_line(
+                "git diff HEAD".to_string(),
                 working_dir.clone(),
                 Vec::new(),
                 control,
@@ -910,191 +936,410 @@ pub(crate) async fn run_ai_commit(
                 true,
             )
             .await;
-            if !working_diff.stdout.trim().is_empty() {
-                diff_ran = working_diff;
+
+            if !all_diff_ran.stdout.trim().is_empty() {
+                diff_ran = all_diff_ran;
+            } else {
+                let working_diff = run_line(
+                    "git diff".to_string(),
+                    working_dir.clone(),
+                    Vec::new(),
+                    control,
+                    reporter,
+                    run_mode,
+                    false,
+                    true,
+                )
+                .await;
+                if !working_diff.stdout.trim().is_empty() {
+                    diff_ran = working_diff;
+                }
             }
         }
-    }
 
-    // Also get status porcelain to catch newly added / untracked files
-    let status_ran = run_line(
-        "git status --porcelain".to_string(),
-        working_dir.clone(),
-        Vec::new(),
-        control,
-        reporter,
-        run_mode,
-        false,
-        true,
-    )
-    .await;
+        let status_ran = run_line(
+            "git status --porcelain".to_string(),
+            working_dir.clone(),
+            Vec::new(),
+            control,
+            reporter,
+            run_mode,
+            false,
+            true,
+        )
+        .await;
 
-    let diff_text = diff_ran.stdout.trim();
-    let status_text = status_ran.stdout.trim();
+        let diff_text = diff_ran.stdout.trim();
+        let status_text = status_ran.stdout.trim();
 
-    if diff_text.is_empty() && status_text.is_empty() {
-        reporter.err("No changes found in git repository (working tree clean).");
-        let fallback = "chore: working tree clean".to_string();
-        if data.continue_on_error {
-            return StepOutcome {
-                status: reporter.finished_with_value(NodeStatus::Success, Some(0), fallback.clone()),
-                value: Some((data.variable.trim().to_string(), fallback)),
-                branch: None,
-            };
-        } else {
-            return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
+        if diff_text.is_empty() && status_text.is_empty() {
+            reporter.err("No changes found in git repository (working tree clean).");
+            let fallback = "chore: working tree clean".to_string();
+            if data.continue_on_error {
+                return StepOutcome {
+                    status: reporter.finished_with_value(NodeStatus::Success, Some(0), fallback.clone()),
+                    value: Some((data.variable.trim().to_string(), fallback)),
+                    branch: None,
+                };
+            } else {
+                return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
+            }
         }
-    }
 
-    reporter.out(format!("Inspecting repository changes in {}...", process::display_dir(&working_dir)));
+        let combined_diff = if !status_text.is_empty() && !diff_text.is_empty() {
+            format!("Status:\n{}\n\nDiff:\n{}", status_text, diff_text)
+        } else if !diff_text.is_empty() {
+            diff_text.to_string()
+        } else {
+            status_text.to_string()
+        };
 
-    let summary = summarize_diff(diff_text, status_text, &data.style);
+        if let Some(ai_result) = call_apple_intelligence(&combined_diff, status_text, &prompt, &data.style, reporter).await {
+            ai_result
+        } else {
+            summarize_diff(diff_text, status_text, &prompt, &data.style)
+        }
+    };
 
-    reporter.out(format!("✨ Generated commit message: \"{}\"", summary));
+    reporter.out(final_summary.clone());
 
     StepOutcome {
-        status: reporter.finished_with_value(NodeStatus::Success, Some(0), summary.clone()),
-        value: Some((data.variable.trim().to_string(), summary)),
+        status: reporter.finished_with_value(NodeStatus::Success, Some(0), final_summary.clone()),
+        value: Some((data.variable.trim().to_string(), final_summary)),
         branch: None,
     }
 }
 
-fn summarize_diff(diff: &str, status: &str, style: &str) -> String {
-    let mut files = Vec::new();
-    let mut is_new_file = false;
-    let mut is_deleted_file = false;
+const APPLE_INTELLIGENCE_SWIFT: &str = include_str!("../../resources/apple_intelligence.swift");
 
+async fn call_apple_intelligence(
+    diff: &str,
+    status: &str,
+    user_prompt: &str,
+    style: &str,
+    _reporter: &Reporter<'_>,
+) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        let payload = serde_json::json!({
+            "diff": diff,
+            "status": status,
+            "prompt": user_prompt,
+            "style": style,
+        });
+
+        let script_path = std::env::temp_dir().join("fuse_apple_intelligence.swift");
+        if !script_path.exists() {
+            let _ = std::fs::write(&script_path, APPLE_INTELLIGENCE_SWIFT);
+        }
+
+        let mut child = tokio::process::Command::new("swift")
+            .arg(&script_path)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .ok()?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            use tokio::io::AsyncWriteExt;
+            let _ = stdin.write_all(payload.to_string().as_bytes()).await;
+            let _ = stdin.shutdown().await;
+        }
+
+        let output = child.wait_with_output().await.ok()?;
+        if output.status.success() {
+            let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !result.is_empty() {
+                return Some(result);
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (diff, status, user_prompt, style);
+    }
+
+    None
+}
+
+fn summarize_general_text(content: &str, prompt: &str, style: &str) -> String {
+    let lines: Vec<&str> = content.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+    if lines.is_empty() {
+        return "No content to summarize".to_string();
+    }
+
+    let prompt_lower = prompt.to_lowercase();
+    if style == "concise" || prompt_lower.contains("concise") || prompt_lower.contains("1-sentence") {
+        if lines.len() == 1 {
+            lines[0].to_string()
+        } else {
+            format!("{}.", lines[0].trim_end_matches('.'))
+        }
+    } else if style == "detailed" || prompt_lower.contains("release notes") || prompt_lower.contains("bullet") {
+        if lines.len() <= 4 {
+            lines.join("\n")
+        } else {
+            format!("- {}\n- {}\n- {}\n...and {} more items", lines[0], lines[1], lines[2], lines.len() - 3)
+        }
+    } else {
+        if lines.len() == 1 {
+            format!("feat(core): {}", lines[0])
+        } else {
+            format!("feat(core): process {}", lines[0])
+        }
+    }
+}
+
+fn summarize_diff(diff: &str, status: &str, prompt: &str, style: &str) -> String {
+    let mut files = Vec::new();
+    let mut new_files = Vec::new();
+    let mut deleted_files = Vec::new();
+    let mut file_hunks: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    let mut current_file = String::new();
+
+    // 1. Collect files from git status porcelain
     for line in status.lines() {
         let line = line.trim();
         if line.len() > 3 {
             let flag = &line[0..2];
             let filename = line[3..].trim();
             if flag.contains('A') || flag.contains('?') {
-                is_new_file = true;
+                new_files.push(filename.to_string());
             }
             if flag.contains('D') {
-                is_deleted_file = true;
+                deleted_files.push(filename.to_string());
             }
-            files.push(filename.to_string());
+            if !files.contains(&filename.to_string()) {
+                files.push(filename.to_string());
+            }
         }
     }
 
-    if files.is_empty() {
-        for line in diff.lines() {
-            if let Some(rest) = line.strip_prefix("diff --git a/") {
-                if let Some(idx) = rest.find(" b/") {
-                    files.push(rest[..idx].to_string());
+    // 2. Collect files and hunk lines from diff
+    for line in diff.lines() {
+        if let Some(rest) = line.strip_prefix("diff --git a/") {
+            if let Some(idx) = rest.find(" b/") {
+                let filename = rest[..idx].to_string();
+                current_file = filename.clone();
+                if !files.contains(&filename) {
+                    files.push(filename);
                 }
             }
+        } else if let Some(rest) = line.strip_prefix("+++ b/") {
+            let filename = rest.trim().to_string();
+            if filename != "/dev/null" {
+                current_file = filename.clone();
+                if !files.contains(&filename) {
+                    files.push(filename);
+                }
+            }
+        } else if !current_file.is_empty() {
+            if (line.starts_with('+') && !line.starts_with("+++"))
+                || (line.starts_with('-') && !line.starts_with("---"))
+                || line.starts_with("@@")
+            {
+                file_hunks.entry(current_file.clone()).or_default().push(line.to_string());
+            }
         }
     }
 
-    let mut scopes = std::collections::BTreeMap::new();
+    // 3. Determine scopes intelligently from files
+    let mut scope_counts = std::collections::BTreeMap::new();
     for f in &files {
-        let parts: Vec<&str> = f.split('/').collect();
-        let scope = if parts.len() > 2 && parts[0] == "src" {
-            parts[1]
-        } else if parts.len() > 2 && parts[0] == "src-tauri" && parts[1] == "src" {
-            parts[2]
-        } else if parts.len() > 1 {
-            parts[0]
+        let clean = f.replace('\\', "/");
+        let parts: Vec<&str> = clean.split('/').collect();
+        let scope = if parts.len() >= 2 {
+            if parts[0] == "src" || parts[0] == "src-tauri" || parts[0] == "packages" || parts[0] == "app" {
+                parts[1]
+            } else {
+                parts[0]
+            }
         } else {
-            "root"
+            let base = parts.last().unwrap_or(&"app");
+            base.split('.').next().unwrap_or(base)
         };
-        *scopes.entry(scope).or_insert(0) += 1;
+        let clean_scope = scope.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+        let final_scope = if clean_scope.is_empty() || clean_scope == "src" {
+            "core".to_string()
+        } else {
+            clean_scope
+        };
+        *scope_counts.entry(final_scope).or_insert(0) += 1;
     }
 
-    let top_scope = scopes.into_iter().max_by_key(|&(_, count)| count).map(|(s, _)| s).unwrap_or("app");
-    let clean_scope = if top_scope.ends_with(".rs") {
-        top_scope.strip_suffix(".rs").unwrap_or(top_scope)
-    } else if top_scope.ends_with(".tsx") {
-        top_scope.strip_suffix(".tsx").unwrap_or(top_scope)
-    } else if top_scope.ends_with(".ts") {
-        top_scope.strip_suffix(".ts").unwrap_or(top_scope)
-    } else if top_scope.ends_with(".css") {
-        top_scope.strip_suffix(".css").unwrap_or(top_scope)
-    } else {
-        top_scope
-    };
+    let top_scope = scope_counts
+        .into_iter()
+        .max_by_key(|&(_, count)| count)
+        .map(|(s, _)| s)
+        .unwrap_or_else(|| "core".to_string());
 
-    let lower_diff = diff.to_lowercase();
-    let has_fix = lower_diff.contains("fix") || lower_diff.contains("bug") || lower_diff.contains("clipping") || lower_diff.contains("overflow") || lower_diff.contains("error") || lower_diff.contains("patch") || lower_diff.contains("flicker");
-    let has_feat = is_new_file || lower_diff.contains("add") || lower_diff.contains("feature") || lower_diff.contains("implement") || lower_diff.contains("support") || lower_diff.contains("create") || lower_diff.contains("spawn");
-    let has_chore = files.iter().all(|f| f.ends_with(".json") || f.ends_with(".yml") || f.ends_with(".toml") || f.ends_with(".lock") || f.ends_with(".md"));
-    let has_docs = files.iter().all(|f| f.ends_with(".md") || f.contains("readme"));
-    let has_style = files.iter().all(|f| f.ends_with(".css") || f.ends_with(".scss"));
+    // 4. Extract rich file-level actions
+    let mut file_actions = Vec::new();
+    for f in &files {
+        let f_name = f.rsplit('/').next().unwrap_or(f);
+        let base_name = f_name.split('.').next().unwrap_or(f_name);
 
-    let commit_type = if has_docs {
+        if new_files.contains(f) {
+            file_actions.push(format!("add {} module", base_name));
+            continue;
+        }
+        if deleted_files.contains(f) {
+            file_actions.push(format!("remove {}", base_name));
+            continue;
+        }
+
+        let lines = file_hunks.get(f);
+        if let Some(hunk_lines) = lines {
+            let mut added_symbols = Vec::new();
+            let mut detected_verbs = Vec::new();
+
+            for l in hunk_lines {
+                if l.starts_with("@@") {
+                    if let Some(idx) = l.rfind("@@") {
+                        let ctx = l[idx + 2..].trim();
+                        let cleaned = ctx
+                            .trim_start_matches("pub ")
+                            .trim_start_matches("async ")
+                            .trim_start_matches("fn ")
+                            .trim_start_matches("function ")
+                            .trim_start_matches("export ")
+                            .trim_start_matches("const ")
+                            .trim_start_matches("struct ")
+                            .trim_start_matches("type ");
+                        if let Some(p_idx) = cleaned.find('(') {
+                            let sym = cleaned[..p_idx].trim();
+                            if !sym.is_empty() && sym.len() < 25 && !added_symbols.contains(&sym.to_string()) {
+                                added_symbols.push(sym.to_string());
+                            }
+                        }
+                    }
+                } else if l.starts_with('+') {
+                    let lower = l.to_lowercase();
+                    if lower.contains("variable") || lower.contains("interpolat") {
+                        detected_verbs.push("support variables");
+                    }
+                    if lower.contains("preview") || lower.contains("markdown") {
+                        detected_verbs.push("add live preview");
+                    }
+                    if lower.contains("blur") || lower.contains("activeelement") {
+                        detected_verbs.push("handle input blur");
+                    }
+                    if lower.contains("delete") || lower.contains("remove") || lower.contains("doomed") {
+                        detected_verbs.push("support deletion");
+                    }
+                    if lower.contains("fix") || lower.contains("guard") || lower.contains("catch") {
+                        detected_verbs.push("fix error handling");
+                    }
+                    if lower.contains("prompt") || lower.contains("preset") {
+                        detected_verbs.push("support prompt presets");
+                    }
+                    if lower.contains("button") || lower.contains("gradient") || lower.contains("style") {
+                        detected_verbs.push("update styles");
+                    }
+                }
+            }
+
+            detected_verbs.dedup();
+            if !detected_verbs.is_empty() {
+                file_actions.push(format!("{} in {}", detected_verbs.join(" and "), base_name));
+            } else if !added_symbols.is_empty() {
+                file_actions.push(format!("update {} in {}", added_symbols.join(", "), base_name));
+            } else {
+                file_actions.push(format!("update {}", base_name));
+            }
+        } else {
+            file_actions.push(format!("update {}", base_name));
+        }
+    }
+
+    file_actions.dedup();
+    if file_actions.is_empty() {
+        file_actions.push("update repository changes".to_string());
+    }
+
+    let is_fix = diff.to_lowercase().contains("fix") || diff.to_lowercase().contains("bug") || diff.to_lowercase().contains("error");
+    let is_feat = !new_files.is_empty() || diff.to_lowercase().contains("add ") || diff.to_lowercase().contains("support ") || diff.to_lowercase().contains("implement ");
+    let is_docs = files.iter().all(|f| f.ends_with(".md") || f.contains("readme"));
+    let is_style = files.iter().all(|f| f.ends_with(".css") || f.ends_with(".scss"));
+
+    let commit_type = if is_docs {
         "docs"
-    } else if has_style {
+    } else if is_style {
         "style"
-    } else if has_chore {
-        "chore"
-    } else if has_fix && !has_feat {
-        "fix"
-    } else if has_feat {
+    } else if is_feat {
         "feat"
-    } else if is_deleted_file {
-        "refactor"
+    } else if is_fix {
+        "fix"
     } else {
         "refactor"
     };
 
-    // Extract high-signal feature modifications
-    let mut feature_hints = Vec::new();
-    let files_str = files.join(" ");
-
-    if files_str.contains("AiCommit") || files_str.contains("ai_commit") {
-        feature_hints.push("add AI commit summarizer block");
-    }
-    if files_str.contains("OutputPanel") {
-        feature_hints.push("make output panel selectable and copiable");
-    }
-    if files_str.contains("Canvas") && (lower_diff.contains("spawn") || lower_diff.contains("doubleclick") || lower_diff.contains("cursor")) {
-        feature_hints.push("support node spawning at cursor location");
-    }
-    if lower_diff.contains("user-select") || lower_diff.contains("selection") || lower_diff.contains("flicker") {
-        feature_hints.push("fix selection text highlighting");
-    }
-    if files_str.contains("BumpVersion") {
-        feature_hints.push("support version bump prefix");
-    }
-    if files_str.contains("README") {
-        feature_hints.push("update README documentation");
-    }
-
-    let action_desc = if !feature_hints.is_empty() {
-        if feature_hints.len() >= 3 {
-            format!("{}, {}, and {}", feature_hints[0], feature_hints[1], feature_hints[2])
-        } else if feature_hints.len() == 2 {
-            format!("{} and {}", feature_hints[0], feature_hints[1])
-        } else {
-            feature_hints[0].to_string()
-        }
-    } else if files.len() == 1 {
-        let f = &files[0];
-        let name = f.rsplit('/').next().unwrap_or(f);
-        if is_new_file {
-            format!("add {}", name)
-        } else if is_deleted_file {
-            format!("remove {}", name)
-        } else {
-            format!("update {}", name)
-        }
-    } else if files.len() <= 3 {
-        let names: Vec<&str> = files.iter().map(|f| f.rsplit('/').next().unwrap_or(f)).collect();
-        format!("update {}", names.join(", "))
+    let summary_description = if file_actions.len() >= 3 {
+        format!("{}, {}, and {}", file_actions[0], file_actions[1], file_actions[2])
+    } else if file_actions.len() == 2 {
+        format!("{} and {}", file_actions[0], file_actions[1])
     } else {
-        format!("update {} components in {}", files.len(), clean_scope)
+        file_actions[0].clone()
     };
 
-    if style == "concise" {
-        let mut chars = action_desc.chars();
+    let prompt_lower = prompt.to_lowercase();
+    if style == "concise" || prompt_lower.contains("concise") || prompt_lower.contains("1-sentence") {
+        let mut chars = summary_description.chars();
         match chars.next() {
-            None => "Update repository".to_string(),
-            Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
+            None => "Update repository changes.".to_string(),
+            Some(f) => format!("{}.", f.to_uppercase().collect::<String>() + chars.as_str()),
+        }
+    } else if style == "detailed" || prompt_lower.contains("release notes") || prompt_lower.contains("bullet") {
+        let mut notes = Vec::new();
+        notes.push(format!("### {}", commit_type.to_uppercase()));
+        for act in file_actions.iter().take(6) {
+            let mut chars = act.chars();
+            let cap = match chars.next() {
+                None => act.clone(),
+                Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
+            };
+            notes.push(format!("- {}", cap));
+        }
+        if !files.is_empty() {
+            notes.push("".to_string());
+            notes.push(format!("*Modified {} file(s) in `{}`*", files.len(), top_scope));
+        }
+        notes.join("\n")
+    } else {
+        // Default conventional commit format
+        format!("{}({}): {}", commit_type, top_scope, summary_description)
+    }
+}
+
+pub(crate) async fn run_note(
+    _data: &NoteData,
+    rendered: String,
+    var_name: Option<String>,
+    reporter: &Reporter<'_>,
+) -> StepOutcome {
+    if let Some(name) = var_name {
+        reporter.out(format!("Note evaluated into variable \"{}\"", name));
+        StepOutcome {
+            status: reporter.finished_with_value(NodeStatus::Success, Some(0), rendered.clone()),
+            value: Some((name, rendered)),
+            branch: None,
         }
     } else {
-        format!("{}({}): {}", commit_type, clean_scope, action_desc)
+        StepOutcome::plain(reporter.finished(NodeStatus::Success, Some(0)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summarize_diff_creates_conventional_commit() {
+        let diff = "+ let new_feature = true;";
+        let status = "A src/feature.rs";
+        let summary = summarize_diff(diff, status, "", "conventional");
+        assert!(summary.contains("feature"));
     }
 }

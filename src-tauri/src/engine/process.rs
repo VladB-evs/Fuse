@@ -173,27 +173,20 @@ fn login_shell() -> String {
 use super::events::RunMode;
 
 fn is_destructive_network_cmd(cmd: &str) -> bool {
-    let lower = cmd.to_lowercase();
-    let parts: Vec<&str> = lower.split_whitespace().collect();
-    if parts.is_empty() {
-        return false;
-    }
-    // git push ...
-    if parts.len() >= 2 && parts[0] == "git" && parts[1] == "push" {
-        return true;
-    }
-    // npm publish, yarn publish, pnpm publish, bun publish
-    if parts.len() >= 2
-        && (parts[0] == "npm" || parts[0] == "yarn" || parts[0] == "pnpm" || parts[0] == "bun")
-        && parts[1] == "publish"
-    {
-        return true;
-    }
-    // cargo publish
-    if parts.len() >= 2 && parts[0] == "cargo" && parts[1] == "publish" {
-        return true;
-    }
-    false
+    use regex::Regex;
+    use std::sync::LazyLock;
+
+    // Matches destructive publish/push subcommands anywhere in the command
+    // string, so chained commands (`&& git push`), prefixes (`sudo git push`),
+    // and interleaved flags (`git -c x push`) are all caught.
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"(?i)\bgit\s+(?:[^\s;|&]+\s+)*push\b|\b(?:npm|yarn|pnpm|bun|cargo)\s+publish\b",
+        )
+        .unwrap()
+    });
+
+    RE.is_match(cmd)
 }
 
 /// Run one command to completion, streaming each output line to `on_line`.
@@ -254,7 +247,7 @@ where
             "Real network writes (e.g. git push, npm publish) are prevented during sandbox runs for safety.".to_string(),
         );
         return Ok(Outcome {
-            exit_code: Some(0),
+            exit_code: Some(1),
             duration_ms: started.elapsed().as_millis() as u64,
             cancelled: false,
         });
@@ -633,7 +626,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(outcome.exit_code, Some(0));
+        assert_eq!(outcome.exit_code, Some(1));
         assert!(lines.iter().any(|(s, l)| *s == OutputStream::Stderr && l.contains("[SANDBOX GUARD] Blocked network command")));
     }
 

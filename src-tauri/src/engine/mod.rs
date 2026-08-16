@@ -65,6 +65,13 @@ pub async fn execute(
         RunMode::Live,
     )
     .await
+    .map(|(status, sandbox)| {
+        // Headless mode: clean up the sandbox since nobody will apply it.
+        if let Some(sb) = sandbox {
+            sb.cleanup();
+        }
+        status
+    })
 }
 
 /// Execute an entire workflow, putting interactive steps to `prompter`.
@@ -76,7 +83,7 @@ pub async fn execute_with_prompts(
     control: &RunControl,
     prompter: &dyn Prompter,
     run_mode: RunMode,
-) -> Result<RunStatus, GraphError> {
+) -> Result<(RunStatus, Option<SandboxContext>), GraphError> {
     let dag = Dag::build(workflow)?;
     let started = Instant::now();
 
@@ -93,7 +100,28 @@ pub async fn execute_with_prompts(
             .as_deref()
             .map(process::resolve_dir)
             .unwrap_or_else(process::home_dir);
-        SandboxContext::create(&base_dir, run_id).ok()
+        match SandboxContext::create(&base_dir, run_id) {
+            Ok(sb) => Some(sb),
+            Err(e) => {
+                sink.emit(EngineEvent::NodeOutput {
+                    run_id: run_id.to_string(),
+                    node_id: String::new(),
+                    stream: events::OutputStream::Stderr,
+                    line: format!("Failed to create sandbox: {e}"),
+                    at: now_ms(),
+                });
+                sink.emit(EngineEvent::RunFinished {
+                    run_id: run_id.to_string(),
+                    status: RunStatus::Failed,
+                    duration_ms: started.elapsed().as_millis() as u64,
+                    run_mode,
+                    sandbox_dir: None,
+                    diff: None,
+                    at: now_ms(),
+                });
+                return Ok((RunStatus::Failed, None));
+            }
+        }
     } else {
         None
     };
@@ -157,13 +185,13 @@ pub async fn execute_with_prompts(
 
         // Scope values so a node only inherits variables produced by its active upstream dependencies
         let effective_values: BTreeMap<String, String> = {
-            let mut map = values.clone();
+            let mut map = BTreeMap::new();
             let upstreams = dag.transitive_dependencies_of(node_id);
-            for (producer_id, (var_name, var_val)) in &node_outputs {
-                if !upstreams.contains(producer_id) {
-                    map.remove(var_name);
-                } else {
-                    map.insert(var_name.clone(), var_val.clone());
+            for ordered_id in dag.order() {
+                if upstreams.contains(ordered_id) {
+                    if let Some((var_name, var_val)) = node_outputs.get(ordered_id) {
+                        map.insert(var_name.clone(), var_val.clone());
+                    }
                 }
             }
             map
@@ -174,7 +202,7 @@ pub async fn execute_with_prompts(
             node.payload,
             NodePayload::Approval(_) | NodePayload::Choice(_) | NodePayload::Input(_)
         ) {
-            let outcome = ask_step(
+            let (outcome_status, outcome_val) = ask_step(
                 workflow,
                 &dag,
                 node_id,
@@ -182,18 +210,22 @@ pub async fn execute_with_prompts(
                 sink,
                 control,
                 prompter,
-                &mut values,
+                &effective_values,
                 &mut taken,
             )
             .await;
-            statuses.insert(node_id.clone(), outcome);
+            if let Some((name, value)) = outcome_val {
+                node_outputs.insert(node_id.clone(), (name.clone(), value.clone()));
+                values.insert(name, value);
+            }
+            statuses.insert(node_id.clone(), outcome_status);
             continue;
         }
 
         // Steps that do their own work: script, condition, capture, wait, http.
         if !matches!(
             node.payload,
-            NodePayload::Command(_) | NodePayload::Frame(_) | NodePayload::Note(_)
+            NodePayload::Command(_) | NodePayload::Frame(_)
         ) {
             let outcome = automated_step(
                 workflow,
@@ -369,7 +401,7 @@ pub async fn execute_with_prompts(
         at: now_ms(),
     });
 
-    Ok(run_status)
+    Ok((run_status, sandbox_ctx))
 }
 
 /// `None` means the node is clear to run.
@@ -380,22 +412,38 @@ fn blocking_reason(
     statuses: &HashMap<String, NodeStatus>,
     taken: &HashMap<String, HashSet<String>>,
 ) -> Option<String> {
-    for dep_id in dag.dependencies_of(node_id) {
+    let deps = dag.dependencies_of(node_id);
+    if deps.is_empty() {
+        return None;
+    }
+
+    // Track whether at least one dependency actually ran to completion.
+    // If every dependency was branch-skipped (none ran), the merge itself
+    // should still be skipped — there is nothing to merge.
+    let mut has_real_completion = false;
+
+    for dep_id in deps {
         // A choice step only feeds the branches that were picked.
-        if let Some(chosen) = taken.get(dep_id) {
+        if let Some(chosen) = taken.get(dep_id.as_str()) {
             if !chosen.contains(node_id) {
-                return Some("Skipped — another path was chosen".into());
+                // This node is not on the chosen branch — branch-skipped,
+                // non-blocking for diamond merges.
+                continue;
             }
         }
 
         match statuses.get(dep_id) {
-            Some(NodeStatus::Success) => {}
+            Some(NodeStatus::Success) => {
+                has_real_completion = true;
+            }
             Some(NodeStatus::Failed) => {
                 let tolerated = workflow
                     .node(dep_id)
                     .map(|n| n.continue_on_error())
                     .unwrap_or(false);
-                if !tolerated {
+                if tolerated {
+                    has_real_completion = true;
+                } else {
                     let title = workflow
                         .node(dep_id)
                         .map(|n| n.title())
@@ -403,13 +451,54 @@ fn blocking_reason(
                     return Some(format!("Skipped — \"{title}\" failed"));
                 }
             }
-            Some(NodeStatus::Skipped) | Some(NodeStatus::Cancelled) => {
+            Some(NodeStatus::Skipped) | Some(NodeStatus::Cancelled) | None => {
+                // Check whether this dependency was skipped because it sits
+                // on the unchosen side of a condition/choice fork upstream.
+                if is_branch_skipped(dep_id, dag, statuses, taken) {
+                    continue;
+                }
                 return Some("Skipped — an earlier step did not run".into());
             }
-            None => return Some("Skipped — an earlier step did not run".into()),
         }
     }
+
+    if !has_real_completion {
+        return Some("Skipped — no upstream path ran".into());
+    }
+
     None
+}
+
+/// Returns `true` if `node_id` was skipped because it sits on the unchosen
+/// side of a condition/choice fork, rather than for some other reason
+/// (disabled, earlier failure, etc.).
+fn is_branch_skipped(
+    node_id: &str,
+    dag: &Dag,
+    statuses: &HashMap<String, NodeStatus>,
+    taken: &HashMap<String, HashSet<String>>,
+) -> bool {
+    for ancestor_id in dag.dependencies_of(node_id) {
+        // If the ancestor is a condition/choice that recorded a branch
+        // decision, and this node wasn't in the chosen set, it was
+        // branch-skipped.
+        if let Some(chosen) = taken.get(ancestor_id.as_str()) {
+            if !chosen.contains(node_id) {
+                return true;
+            }
+        }
+        // Recurse: the ancestor itself may have been branch-skipped by a
+        // fork further upstream.
+        if matches!(
+            statuses.get(ancestor_id),
+            Some(NodeStatus::Skipped) | Some(NodeStatus::Cancelled) | None
+        ) {
+            if is_branch_skipped(ancestor_id, dag, statuses, taken) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 // --- Steps that do their own work -----------------------------------------
@@ -540,6 +629,7 @@ async fn automated_step(
                 data,
                 substitute(&data.path, values, Quoting::Raw),
                 working_dir,
+                sandbox_ctx,
                 &reporter,
                 run_mode,
             )
@@ -552,6 +642,7 @@ async fn automated_step(
                 substitute(&data.path, values, Quoting::Raw),
                 substitute(&data.content, values, Quoting::Raw),
                 working_dir,
+                sandbox_ctx,
                 &reporter,
                 run_mode,
             )
@@ -579,12 +670,37 @@ async fn automated_step(
         }
 
         NodePayload::AiCommit(data) => {
+            let prompt = data.prompt.as_ref().map(|p| substitute(p, values, Quoting::Raw));
+            let input_text = data.input_variable.as_ref().map(|v| substitute(v, values, Quoting::Raw));
             steps::run_ai_commit(
                 data,
+                prompt,
+                input_text,
                 control,
                 working_dir,
                 &reporter,
                 run_mode,
+            )
+            .await
+        }
+
+        NodePayload::Note(data) => {
+            let rendered = substitute(&data.text, values, Quoting::Raw);
+            let var_name = data.variable.as_ref().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
+                .unwrap_or_else(|| {
+                    let clean = data.label.to_lowercase().replace(|c: char| !c.is_alphanumeric() && c != '_', "_");
+                    let trimmed = clean.trim_matches('_');
+                    if trimmed.is_empty() || trimmed == "note" {
+                        "note".to_string()
+                    } else {
+                        format!("note_{}", trimmed)
+                    }
+                });
+            steps::run_note(
+                data,
+                rendered,
+                Some(var_name),
+                &reporter,
             )
             .await
         }
@@ -652,11 +768,11 @@ async fn ask_step(
     sink: &dyn EventSink,
     control: &RunControl,
     prompter: &dyn Prompter,
-    values: &mut BTreeMap<String, String>,
+    values: &BTreeMap<String, String>,
     taken: &mut HashMap<String, HashSet<String>>,
-) -> NodeStatus {
+) -> (NodeStatus, Option<(String, String)>) {
     let Some(node) = workflow.node(node_id) else {
-        return NodeStatus::Skipped;
+        return (NodeStatus::Skipped, None);
     };
     let started = Instant::now();
 
@@ -708,7 +824,7 @@ async fn ask_step(
                     "Nothing is connected after this step, so there was nothing to choose."
                         .into(),
                 );
-                return finish(NodeStatus::Success);
+                return (finish(NodeStatus::Success), None);
             }
             PromptKind::Choice {
                 options,
@@ -721,7 +837,7 @@ async fn ask_step(
                     OutputStream::Stderr,
                     "This step has no variable name, so there was nothing to ask for.".into(),
                 );
-                return finish(NodeStatus::Skipped);
+                return (finish(NodeStatus::Skipped), None);
             }
             PromptKind::Input {
                 variable: data.variable.trim().to_string(),
@@ -729,7 +845,7 @@ async fn ask_step(
                 secret: data.secret,
             }
         }
-        _ => return finish(NodeStatus::Skipped),
+        _ => return (finish(NodeStatus::Skipped), None),
     };
 
     let message = match &node.payload {
@@ -753,7 +869,7 @@ async fn ask_step(
     match reply {
         PromptReply::Approve => {
             say(OutputStream::Stdout, "Continued.".into());
-            finish(NodeStatus::Success)
+            (finish(NodeStatus::Success), None)
         }
 
         PromptReply::Choose { node_ids } => {
@@ -766,7 +882,7 @@ async fn ask_step(
             if picked.is_empty() {
                 say(OutputStream::Stderr, "No path chosen — run stopped.".into());
                 control.cancel();
-                return finish(NodeStatus::Cancelled);
+                return (finish(NodeStatus::Cancelled), None);
             }
 
             let names: Vec<&str> = options
@@ -780,7 +896,7 @@ async fn ask_step(
             );
 
             taken.insert(node_id.to_string(), picked);
-            finish(NodeStatus::Success)
+            (finish(NodeStatus::Success), None)
         }
 
         PromptReply::Value { value } => {
@@ -798,21 +914,21 @@ async fn ask_step(
                     format!("{variable} = {value}")
                 },
             );
-            values.insert(variable, value);
-            finish(NodeStatus::Success)
+            let produced = (!variable.is_empty()).then(|| (variable, value));
+            (finish(NodeStatus::Success), produced)
         }
 
         PromptReply::Deny => {
             say(OutputStream::Stderr, "Stopped here — nothing after this ran.".into());
             control.cancel();
-            finish(NodeStatus::Cancelled)
+            (finish(NodeStatus::Cancelled), None)
         }
 
         PromptReply::Cancelled => {
             // Either the run was stopped from the toolbar, or the question went
             // away. Either way nothing downstream should run.
             control.cancel();
-            finish(NodeStatus::Cancelled)
+            (finish(NodeStatus::Cancelled), None)
         }
     }
 }
@@ -1297,7 +1413,7 @@ mod tests {
 
         let sink = Arc::new(Recorder::default());
         let prompter = Scripted::new(vec![PromptReply::Approve]);
-        let status = execute_with_prompts(
+        let (status, _) = execute_with_prompts(
             &wf,
             "run-a",
             &sink,
@@ -1332,7 +1448,7 @@ mod tests {
 
         let sink = Arc::new(Recorder::default());
         let prompter = Scripted::new(vec![PromptReply::Deny]);
-        let status = execute_with_prompts(
+        let (status, _) = execute_with_prompts(
             &wf,
             "run-b",
             &sink,
@@ -1368,7 +1484,7 @@ mod tests {
         let prompter = Scripted::new(vec![PromptReply::Choose {
             node_ids: vec!["left".into()],
         }]);
-        let status = execute_with_prompts(
+        let (status, _) = execute_with_prompts(
             &wf,
             "run-c",
             &sink,
@@ -1442,7 +1558,7 @@ mod tests {
 
         let sink = Arc::new(Recorder::default());
         let prompter = Scripted::new(vec![PromptReply::Choose { node_ids: vec![] }]);
-        let status = execute_with_prompts(
+        let (status, _) = execute_with_prompts(
             &wf,
             "run-e",
             &sink,
@@ -1541,7 +1657,7 @@ mod tests {
             killer.cancel();
         });
 
-        let status = tokio::time::timeout(
+        let (status, _) = tokio::time::timeout(
             std::time::Duration::from_secs(5),
             execute_with_prompts(&wf, "run-h", &sink, &control, &Silent, RunMode::Live),
         )
@@ -1622,6 +1738,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn disabled_edge_between_different_node_types_skips_downstream() {
+        let mut e_note_to_cmd = edge("note1", "cmd1");
+        e_note_to_cmd.disabled = Some(true);
+
+        let wf = workflow(
+            vec![
+                cmd_node("cmd0", 0.0, "echo step-0", false),
+                WorkflowNode {
+                    id: "note1".into(),
+                    position: crate::model::Position { x: 50.0, y: 0.0 },
+                    disabled: None,
+                    payload: NodePayload::Note(crate::model::NoteData {
+                        text: "Sample note text".into(),
+                        variable: Some("my_note".into()),
+                        ..Default::default()
+                    }),
+                },
+                cmd_node("cmd1", 100.0, "echo step-1", false),
+                cmd_node("cmd2", 200.0, "echo step-2", false),
+            ],
+            vec![
+                edge("cmd0", "note1"),
+                e_note_to_cmd,
+                edge("cmd1", "cmd2"),
+            ],
+        );
+
+        let sink = Arc::new(Recorder::default());
+        let control = RunControl::new();
+        let status = execute(&wf, "run-dis-mixed", &sink, &control).await.unwrap();
+
+        assert_eq!(status, RunStatus::Success);
+        assert!(sink.stdout_lines().contains(&"step-0".to_string()));
+        assert!(!sink.stdout_lines().contains(&"step-1".to_string()));
+        assert!(!sink.stdout_lines().contains(&"step-2".to_string()));
+        assert_eq!(sink.skipped(), vec!["cmd1".to_string(), "cmd2".to_string()]);
+    }
+
+    #[tokio::test]
     async fn choice_filters_out_disabled_edges_and_disabled_nodes() {
         let mut n_dis = cmd_node("disabled_node", 100.0, "echo dis", false);
         n_dis.disabled = Some(true);
@@ -1647,7 +1802,7 @@ mod tests {
         let prompter = Scripted::new(vec![PromptReply::Choose {
             node_ids: vec!["active_node".into()],
         }]);
-        let status = execute_with_prompts(
+        let (status, _) = execute_with_prompts(
             &wf,
             "run-choice-dis",
             &sink,
@@ -1686,7 +1841,7 @@ mod tests {
 
         let sink = Arc::new(Recorder::default());
         let prompter = Scripted::new(vec![]);
-        let status = execute_with_prompts(
+        let (status, _) = execute_with_prompts(
             &wf,
             "run-dry",
             &sink,
@@ -1735,7 +1890,7 @@ mod tests {
 
         let sink = Arc::new(Recorder::default());
         let prompter = Scripted::new(vec![]);
-        let status = execute_with_prompts(
+        let (status, _) = execute_with_prompts(
             &wf,
             "run-no-bleed",
             &sink,
@@ -1749,5 +1904,83 @@ mod tests {
         assert_eq!(status, RunStatus::Success);
         let out = sink.stdout_lines();
         assert!(!out.contains(&"MSG=ai-generated-message".to_string()));
+    }
+
+    #[tokio::test]
+    async fn diamond_branch_join_runs_when_one_branch_taken() {
+        // Choice: left or right.
+        // left -> echo left -> join
+        // right -> echo right -> join
+        // join -> echo joined
+        let wf = workflow(
+            vec![
+                choice("pick", 0.0, false),
+                cmd_node("left", 100.0, "echo left", false),
+                cmd_node("right", 110.0, "echo right", false),
+                cmd_node("join", 200.0, "echo joined", false),
+            ],
+            vec![
+                edge("pick", "left"),
+                edge("pick", "right"),
+                edge("left", "join"),
+                edge("right", "join"),
+            ],
+        );
+
+        let sink = Arc::new(Recorder::default());
+        let prompter = Scripted::new(vec![PromptReply::Choose {
+            node_ids: vec!["left".into()],
+        }]);
+        let (status, _) = execute_with_prompts(
+            &wf,
+            "run-diamond",
+            &sink,
+            &RunControl::new(),
+            &prompter,
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status, RunStatus::Success);
+        let out = sink.stdout_lines();
+        assert!(out.contains(&"left".to_string()));
+        assert!(!out.contains(&"right".to_string()));
+        assert!(out.contains(&"joined".to_string()));
+        assert_eq!(sink.skipped(), vec!["right".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn ask_node_values_do_not_leak_to_parallel_branches() {
+        let wf = workflow(
+            vec![
+                ask_for("ask_a", 0.0, "SECRET_TOKEN"),
+                cmd_node("cmd_a", 10.0, "echo A={{SECRET_TOKEN}}", false),
+                cmd_node("cmd_b", 20.0, "echo B={{SECRET_TOKEN}}", false),
+            ],
+            vec![
+                edge("ask_a", "cmd_a"),
+            ],
+        );
+
+        let sink = Arc::new(Recorder::default());
+        let prompter = Scripted::new(vec![PromptReply::Value {
+            value: "super_secret_value".into(),
+        }]);
+        let (status, _) = execute_with_prompts(
+            &wf,
+            "run-no-leak-ask",
+            &sink,
+            &RunControl::new(),
+            &prompter,
+            RunMode::Live,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status, RunStatus::Success);
+        let out = sink.stdout_lines();
+        assert!(out.contains(&"A=super_secret_value".to_string()));
+        assert!(!out.contains(&"B=super_secret_value".to_string()));
     }
 }
