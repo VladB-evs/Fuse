@@ -10,9 +10,8 @@ use crate::engine::{
 use crate::model::{Workflow, WorkflowSummary};
 use crate::storage::WorkflowStore;
 use serde::Serialize;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::{Arc, Mutex, RwLock};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
@@ -20,44 +19,6 @@ use tokio::sync::oneshot;
 
 /// Single channel the frontend listens on for all engine progress.
 pub const ENGINE_EVENT: &str = "fuse://engine";
-
-/// Local Git activity used by the repository panel. No network or GitHub
-/// credentials are needed: it simply visualises the history already cloned.
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RepositoryActivity {
-    pub is_repository: bool,
-    pub is_github: bool,
-    pub remote: Option<String>,
-    pub branch: Option<String>,
-    pub commits: u32,
-    pub days: Vec<ActivityDay>,
-    pub history: Vec<RepositoryCommit>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ActivityDay {
-    pub date: String,
-    pub count: u32,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RepositoryCommit {
-    pub hash: String,
-    pub short_hash: String,
-    pub author: String,
-    pub email: String,
-    pub authored_at: String,
-    pub relative_time: String,
-    pub subject: String,
-    pub files_changed: u32,
-    pub insertions: u32,
-    pub deletions: u32,
-    pub parents: Vec<String>,
-    pub refs: Vec<String>,
-}
 
 pub struct AppState {
     pub store: RwLock<Arc<dyn WorkflowStore>>,
@@ -178,12 +139,11 @@ pub fn load_settings(data_dir: &std::path::Path) -> AppSettings {
         AppSettings::default()
     };
 
-    let base = settings
-        .custom_workflow_dir
-        .as_ref()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| data_dir.to_path_buf());
-    let workflow_dir = base.join("workflows");
+    let workflow_dir = if let Some(ref custom) = settings.custom_workflow_dir {
+        PathBuf::from(custom)
+    } else {
+        data_dir.join("workflows")
+    };
     let _ = std::fs::create_dir_all(&workflow_dir);
     settings.workflow_dir = workflow_dir.to_string_lossy().to_string();
 
@@ -234,11 +194,7 @@ pub async fn set_workflow_directory(
 ) -> Result<(), String> {
     let mut settings = load_settings(&state.app_data_dir);
     
-    let old_dir = settings.custom_workflow_dir
-        .clone()
-        .map(PathBuf::from)
-        .unwrap_or_else(|| state.app_data_dir.clone())
-        .join("workflows");
+    let old_dir = PathBuf::from(&settings.workflow_dir);
     
     // Check if the new path exists and is a directory
     if let Some(ref dir_path) = path {
@@ -255,23 +211,24 @@ pub async fn set_workflow_directory(
     save_settings(&state.app_data_dir, &settings)?;
 
     // Create a new store pointing to the new directory (or default if None)
-    let new_dir = path
-        .map(PathBuf::from)
-        .unwrap_or_else(|| state.app_data_dir.clone());
-        
-    let new_store = crate::storage::JsonStore::new(&new_dir).map_err(|e| e.to_string())?;
+    let new_store = if let Some(ref custom) = path {
+        crate::storage::JsonStore::new_direct(PathBuf::from(custom)).map_err(|e| e.to_string())?
+    } else {
+        crate::storage::JsonStore::new(&state.app_data_dir).map_err(|e| e.to_string())?
+    };
     let new_workflows_dir = new_store.directory();
     
     // Migrate files if they don't already exist in the new directory
-    if old_dir.exists() && old_dir != new_workflows_dir {
+    if old_dir.exists() && &old_dir != new_workflows_dir {
         if let Ok(entries) = std::fs::read_dir(&old_dir) {
             for entry in entries.filter_map(Result::ok) {
-                let file_type = entry.file_type().unwrap();
-                if file_type.is_file() {
-                    let file_name = entry.file_name();
-                    let target_path = new_workflows_dir.join(&file_name);
-                    if !target_path.exists() {
-                        let _ = std::fs::copy(entry.path(), target_path);
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_file() {
+                        let file_name = entry.file_name();
+                        let target_path = new_workflows_dir.join(&file_name);
+                        if !target_path.exists() {
+                            let _ = std::fs::copy(entry.path(), target_path);
+                        }
                     }
                 }
             }
@@ -341,7 +298,56 @@ pub async fn run_node(
         return Err("Cannot run a disabled step. Re-enable it first.".into());
     }
 
-    // Frames come along: they carry the directory this block runs in.
+    // If running a choice or condition node, include all reachable downstream nodes and edges
+    if node.is_choice() || node.is_condition() {
+        let mut reachable_ids = std::collections::HashSet::new();
+        reachable_ids.insert(node_id.clone());
+        let mut queue = std::collections::VecDeque::new();
+        queue.push_back(node_id.clone());
+
+        let mut included_edges = Vec::new();
+
+        while let Some(current_id) = queue.pop_front() {
+            for edge in &workflow.edges {
+                if edge.disabled == Some(true) {
+                    continue;
+                }
+                if edge.source == current_id {
+                    included_edges.push(edge.clone());
+                    if reachable_ids.insert(edge.target.clone()) {
+                        queue.push_back(edge.target.clone());
+                        let is_frame = workflow.node(&edge.target).map(|n| n.is_frame()).unwrap_or(false);
+                        if is_frame {
+                            for member in &workflow.nodes {
+                                if member.frame_id() == Some(&edge.target) && !member.is_disabled() {
+                                    if reachable_ids.insert(member.id.clone()) {
+                                        queue.push_back(member.id.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let nodes: Vec<_> = workflow
+            .nodes
+            .iter()
+            .filter(|n| n.frame().is_some() || reachable_ids.contains(&n.id))
+            .cloned()
+            .collect();
+
+        let branch_flow = Workflow {
+            nodes,
+            edges: included_edges,
+            ..workflow
+        };
+
+        return begin_run(app, &state, branch_flow, run_mode);
+    }
+
+    // Single standalone step: frames come along for working directories.
     let mut nodes: Vec<_> = workflow
         .nodes
         .iter()
@@ -490,147 +496,3 @@ pub async fn pick_directory(app: AppHandle) -> Result<Option<String>, String> {
         .map(|p| p.display().to_string()))
 }
 
-/// Read a year's worth of commit dates from a local checkout. The Git command
-/// is invoked with arguments (never through a shell), keeping folder names
-/// and remote metadata inert.
-#[tauri::command]
-pub async fn repository_activity(directory: String) -> Result<RepositoryActivity, String> {
-    tokio::task::spawn_blocking(move || {
-        let git = |args: &[&str]| {
-            Command::new("git")
-                .arg("-C")
-                .arg(&directory)
-                .args(args)
-                .output()
-        };
-
-        let inside = git(&["rev-parse", "--is-inside-work-tree"])
-            .map_err(|e| format!("Could not inspect Git: {e}"))?;
-        if !inside.status.success() || String::from_utf8_lossy(&inside.stdout).trim() != "true" {
-            return Ok(RepositoryActivity {
-                is_repository: false,
-                is_github: false,
-                remote: None,
-                branch: None,
-                commits: 0,
-                days: vec![],
-                history: vec![],
-            });
-        }
-
-        let remote = git(&["remote", "get-url", "origin"])
-            .ok()
-            .filter(|output| output.status.success())
-            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-            .filter(|value| !value.is_empty());
-        let branch = git(&["branch", "--show-current"])
-            .ok()
-            .filter(|output| output.status.success())
-            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-            .filter(|value| !value.is_empty());
-
-        let log = git(&["log", "--all", "--since=365 days ago", "--format=%as"])
-            .map_err(|e| format!("Could not read Git history: {e}"))?;
-        if !log.status.success() {
-            return Err(String::from_utf8_lossy(&log.stderr).trim().to_string());
-        }
-
-        let mut counts: BTreeMap<String, u32> = BTreeMap::new();
-        for date in String::from_utf8_lossy(&log.stdout)
-            .lines()
-            .filter(|line| !line.is_empty())
-        {
-            *counts.entry(date.to_string()).or_default() += 1;
-        }
-        let commits = counts.values().sum();
-        let is_github = remote
-            .as_deref()
-            .map(|url| url.contains("github.com"))
-            .unwrap_or(false);
-        let history = latest_commits(&git)?;
-
-        Ok(RepositoryActivity {
-            is_repository: true,
-            is_github,
-            remote,
-            branch,
-            commits,
-            days: counts
-                .into_iter()
-                .map(|(date, count)| ActivityDay { date, count })
-                .collect(),
-            history,
-        })
-    })
-    .await
-    .map_err(|e| format!("Repository inspection failed: {e}"))?
-}
-
-fn latest_commits(
-    git: &impl Fn(&[&str]) -> std::io::Result<std::process::Output>,
-) -> Result<Vec<RepositoryCommit>, String> {
-    let log = git(&[
-        "log",
-        "--all",
-        "-n",
-        "80",
-        "--date=iso-strict",
-        "--format=%x1e%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%ar%x1f%s%x1f%P%x1f%D",
-        "--numstat",
-    ])
-    .map_err(|e| format!("Could not read Git history: {e}"))?;
-    if !log.status.success() {
-        return Err(String::from_utf8_lossy(&log.stderr).trim().to_string());
-    }
-
-    let text = String::from_utf8_lossy(&log.stdout);
-    let mut commits = Vec::new();
-
-    for record in text.split('\x1e').filter(|record| !record.trim().is_empty()) {
-        let mut lines = record.lines();
-        let Some(header) = lines.next() else {
-            continue;
-        };
-        let fields: Vec<_> = header.splitn(9, '\x1f').collect();
-        if fields.len() != 9 {
-            continue;
-        }
-
-        let mut files_changed = 0;
-        let mut insertions = 0;
-        let mut deletions = 0;
-
-        for line in lines.filter(|line| !line.trim().is_empty()) {
-            let mut parts = line.split('\t');
-            let added = parts.next().unwrap_or_default();
-            let removed = parts.next().unwrap_or_default();
-            if parts.next().is_none() {
-                continue;
-            }
-            files_changed += 1;
-            insertions += added.parse::<u32>().unwrap_or(0);
-            deletions += removed.parse::<u32>().unwrap_or(0);
-        }
-
-        commits.push(RepositoryCommit {
-            hash: fields[0].to_string(),
-            short_hash: fields[1].to_string(),
-            author: fields[2].to_string(),
-            email: fields[3].to_string(),
-            authored_at: fields[4].to_string(),
-            relative_time: fields[5].to_string(),
-            subject: fields[6].to_string(),
-            files_changed,
-            insertions,
-            deletions,
-            parents: fields[7].split_whitespace().map(String::from).collect(),
-            refs: fields[8]
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect(),
-        });
-    }
-
-    Ok(commits)
-}

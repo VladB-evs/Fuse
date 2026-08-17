@@ -47,6 +47,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
   const frame = useWorkflowStore((s) =>
     data.frameId ? s.nodes.find((n) => n.id === data.frameId && isFrameNode(n)) : undefined,
   ) as FrameNodeType | undefined;
+  const workflowDir = useWorkflowStore((s) => s.workingDir);
 
   const pendingFocusId = useUIStore((s) => s.pendingFocusId);
   const consumeFocus = useUIStore((s) => s.consumeFocus);
@@ -161,8 +162,8 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
         )}
 
         {/* Header — double-click the name to rename. */}
-        <div className="flex h-[30px] items-center gap-1.5 border-b border-line/70 px-2.5 rounded-t-[calc(var(--radius-node)-1px)]">
-          <TerminalSquare size={12} className="shrink-0 text-fg-subtle" strokeWidth={1.75} />
+        <div className="flex h-[30px] items-center gap-1.5 border-b border-line/70 px-2.5 rounded-t-[calc(var(--radius-node)-1px)] bg-sky-500/[0.08]">
+          <TerminalSquare size={12} className="shrink-0 text-sky-400" strokeWidth={1.75} />
 
           {editingLabel ? (
             <input
@@ -191,6 +192,11 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
               {data.label || "Terminal"}
             </span>
           )}
+
+          {/* Category Badge Pill */}
+          <span className="px-1.5 py-0.5 rounded-[4px] font-mono text-[8.5px] font-bold tracking-wider uppercase shrink-0 bg-sky-500/15 text-sky-400 border border-sky-500/25 select-none">
+            RUN
+          </span>
 
           {disabled && (
             <button
@@ -221,7 +227,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
             type="button"
             aria-label="Step options"
             aria-expanded={showOptions}
-            title="Step options: folder, environment, error handling"
+            title="Step options: folder, error handling"
             onClick={(e) => {
               e.stopPropagation();
               setShowOptions((open) => !open);
@@ -429,6 +435,8 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
         {showOptions && (
           <StepOptions
             data={data}
+            frame={frame}
+            workflowDir={workflowDir}
             beginEdit={beginEdit}
             onChange={(patch) => updateNodeData(id, patch)}
             onChooseFolder={() => void chooseNodeDirectory(id)}
@@ -453,8 +461,11 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
         {/* Footer — where this block will actually run, and how it last did. */}
         <div className="flex h-[26px] items-center gap-2 border-t border-line/70 px-2.5">
           {data.workingDir ? (
-            <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-fg-subtle">
-              {data.workingDir}
+            <span
+              className="min-w-0 flex-1 truncate font-mono text-[10px] text-fg-subtle"
+              title={`Step folder: ${data.workingDir}`}
+            >
+              {prettyPath(data.workingDir)}
             </span>
           ) : frame ? (
             <span
@@ -462,13 +473,27 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
               title={
                 frame.data.workingDir
                   ? `In frame “${frame.data.label}” — runs in ${frame.data.workingDir}`
+                  : workflowDir
+                  ? `In frame “${frame.data.label}” — inherits workflow folder ${workflowDir}`
                   : `In frame “${frame.data.label}” — no folder set yet`
               }
             >
               <FrameIcon size={9} strokeWidth={2} className="shrink-0" />
               <span className="truncate font-mono">
-                {frame.data.workingDir ? prettyPath(frame.data.workingDir) : frame.data.label}
+                {frame.data.workingDir
+                  ? prettyPath(frame.data.workingDir)
+                  : workflowDir
+                  ? prettyPath(workflowDir)
+                  : frame.data.label}
               </span>
+            </span>
+          ) : workflowDir ? (
+            <span
+              className="flex min-w-0 flex-1 items-center gap-1 truncate text-[10px] text-fg-subtle"
+              title={`Inherits workflow folder: ${workflowDir}`}
+            >
+              <Folder size={9} strokeWidth={1.75} className="shrink-0" />
+              <span className="truncate font-mono">{prettyPath(workflowDir)}</span>
             </span>
           ) : (
             <span className="flex-1" />
@@ -495,40 +520,91 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
 
 function StepOptions({
   data,
+  frame,
+  workflowDir,
   beginEdit,
   onChange,
   onChooseFolder,
   onClearFolder,
 }: {
   data: CommandNodeType["data"];
+  frame?: FrameNodeType;
+  workflowDir?: string | null;
   beginEdit: () => void;
   onChange: (patch: Partial<CommandNodeType["data"]>) => void;
   onChooseFolder: () => void;
   onClearFolder: () => void;
 }) {
-  const entries = Object.entries(data.env);
-  const replaceEntry = (oldKey: string, key: string, value: string) => {
-    const next = { ...data.env };
-    delete next[oldKey];
-    if (key.trim()) next[key.trim()] = value;
-    onChange({ env: next });
-  };
+  const folderInfo = (() => {
+    if (data.workingDir) {
+      return {
+        display: prettyPath(data.workingDir),
+        title: `Custom step folder: ${data.workingDir}`,
+        isCustom: true,
+      };
+    }
+    if (frame) {
+      if (frame.data.workingDir) {
+        return {
+          display: `${frame.data.label}: ${prettyPath(frame.data.workingDir)}`,
+          title: `Inherited from frame “${frame.data.label}” (${frame.data.workingDir}). Click to choose custom folder.`,
+          isCustom: false,
+        };
+      }
+      if (workflowDir) {
+        return {
+          display: `Workflow: ${prettyPath(workflowDir)}`,
+          title: `Inherited from workflow (${workflowDir}) via frame “${frame.data.label}”. Click to choose custom folder.`,
+          isCustom: false,
+        };
+      }
+      return {
+        display: `${frame.data.label} (No folder set)`,
+        title: `In frame “${frame.data.label}” with no folder set. Click to choose folder.`,
+        isCustom: false,
+      };
+    }
+    if (workflowDir) {
+      return {
+        display: `Workflow: ${prettyPath(workflowDir)}`,
+        title: `Inherited from workflow (${workflowDir}). Click to choose custom folder.`,
+        isCustom: false,
+      };
+    }
+    return {
+      display: "No folder set (click to choose…)",
+      title: "No workflow or frame folder attached. Click to choose a folder.",
+      isCustom: false,
+    };
+  })();
 
   return (
     <div className="nodrag border-t border-line/70 bg-elevated/35 px-2.5 py-2">
       <div className="flex items-center gap-1.5">
         <Folder size={10} className="shrink-0 text-fg-subtle" />
-        <span className="text-[10.5px] text-fg-subtle">Run folder</span>
+        <span className="shrink-0 text-[10.5px] text-fg-subtle">Run folder</span>
         <button
           type="button"
           onClick={onChooseFolder}
-          className="min-w-0 flex-1 truncate rounded-[4px] px-1.5 py-0.5 text-left font-mono text-[10.5px] text-accent transition hover:bg-hover"
-          title="Choose a folder for only this step"
+          className={cn(
+            "min-w-0 flex-1 truncate rounded-[4px] px-1.5 py-0.5 text-left font-mono text-[10.5px] transition hover:bg-hover",
+            folderInfo.isCustom
+              ? "text-accent font-medium"
+              : data.workingDir || frame?.data.workingDir || workflowDir
+              ? "text-fg-subtle hover:text-fg"
+              : "text-fg-subtle/70 italic",
+          )}
+          title={folderInfo.title}
         >
-          {data.workingDir ? prettyPath(data.workingDir) : "Inherit from frame or workflow…"}
+          {folderInfo.display}
         </button>
         {data.workingDir && (
-          <button type="button" onClick={onClearFolder} title="Use inherited folder" className="rounded-[4px] p-0.5 text-fg-subtle hover:bg-hover hover:text-fg">
+          <button
+            type="button"
+            onClick={onClearFolder}
+            title="Revert to inherited folder"
+            className="rounded-[4px] p-0.5 text-fg-subtle hover:bg-hover hover:text-fg"
+          >
             <X size={10} strokeWidth={2} />
           </button>
         )}
@@ -546,63 +622,6 @@ function StepOptions({
         />
         Continue dependent steps if this command fails
       </label>
-
-      <div className="mt-2 border-t border-line/60 pt-1.5">
-        <div className="mb-1 flex items-center justify-between">
-          <span className="text-[10.5px] text-fg-subtle">Environment variables</span>
-          <button
-            type="button"
-            onClick={() => {
-              beginEdit();
-              let key = "NEW_VAR";
-              let index = 2;
-              while (data.env[key] !== undefined) key = `NEW_VAR_${index++}`;
-              onChange({ env: { ...data.env, [key]: "" } });
-            }}
-            className="flex items-center gap-0.5 rounded-[4px] px-1 py-0.5 text-[10px] text-accent hover:bg-hover"
-          >
-            <Plus size={9} strokeWidth={2.5} /> Add
-          </button>
-        </div>
-        {entries.length === 0 ? (
-          <p className="text-[10px] text-fg-subtle/80">Inherited shell environment only.</p>
-        ) : (
-          <div className="space-y-1">
-            {entries.map(([key, value]) => (
-              <div key={key} className="flex items-center gap-1">
-                <input
-                  value={key}
-                  aria-label="Environment variable name"
-                  spellCheck={false}
-                  onFocus={beginEdit}
-                  onChange={(event) => replaceEntry(key, event.currentTarget.value, value)}
-                  className="min-w-0 w-[36%] rounded-[4px] border border-line bg-base px-1.5 py-1 font-mono text-[10px] text-fg outline-none focus:border-accent"
-                />
-                <span className="text-[10px] text-fg-subtle">=</span>
-                <input
-                  value={value}
-                  aria-label={`Value for ${key}`}
-                  spellCheck={false}
-                  onFocus={beginEdit}
-                  onChange={(event) => onChange({ env: { ...data.env, [key]: event.currentTarget.value } })}
-                  className="min-w-0 flex-1 rounded-[4px] border border-line bg-base px-1.5 py-1 font-mono text-[10px] text-fg outline-none focus:border-accent"
-                />
-                <button
-                  type="button"
-                  aria-label={`Remove ${key}`}
-                  onClick={() => replaceEntry(key, "", "")}
-                  className="rounded-[4px] p-0.5 text-fg-subtle hover:bg-hover hover:text-danger"
-                >
-                  <X size={10} strokeWidth={2} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-      <div className="mt-1.5 flex items-center gap-1 text-[9.5px] text-fg-subtle/75">
-        <ChevronDown size={9} /> Values apply only to this step.
-      </div>
     </div>
   );
 }

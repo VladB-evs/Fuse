@@ -8,7 +8,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   PromptReply,
-  RepositoryActivity,
   RunMode,
   WorkflowDocument,
   WorkflowSummary,
@@ -95,9 +94,4 @@ export function homeDirectory(): Promise<string> {
 /** Native folder picker. Resolves `null` when the user cancels. */
 export function pickDirectory(): Promise<string | null> {
   return invoke("pick_directory");
-}
-
-/** A local Git activity summary for the workflow's attached folder. */
-export function repositoryActivity(directory: string): Promise<RepositoryActivity> {
-  return invoke("repository_activity", { directory });
 }

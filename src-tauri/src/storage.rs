@@ -36,6 +36,12 @@ pub struct JsonStore {
 }
 
 impl JsonStore {
+    /// `dir` is the exact directory where workflow files live directly.
+    pub fn new_direct(dir: PathBuf) -> Result<Self, StorageError> {
+        fs::create_dir_all(&dir)?;
+        Ok(Self { dir })
+    }
+
     /// `root` is the app data directory; workflows live in a subfolder.
     pub fn new(root: impl AsRef<Path>) -> Result<Self, StorageError> {
         let dir = root.as_ref().join("workflows");

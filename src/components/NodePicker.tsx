@@ -2,7 +2,13 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useUIStore } from "@/store/uiStore";
 import { Kbd } from "@/components/ui/Kbd";
 import { addNodeOfKind } from "@/lib/actions";
-import { ACCENT_TEXT, ACCENT_TINT, searchCatalog, type CatalogEntry } from "@/lib/catalog";
+import {
+  ACCENT_TEXT,
+  ACCENT_TINT,
+  CATEGORY_THEME,
+  searchCatalog,
+  type CatalogEntry,
+} from "@/lib/catalog";
 import { cn } from "@/lib/utils";
 
 const PANEL = { width: 320, maxHeight: 392 };
@@ -129,8 +135,16 @@ export function NodePicker() {
             return (
               <div key={entry.label}>
                 {first && !query && (
-                  <div className="px-2 pt-2 pb-1 text-[9.5px] font-medium tracking-wide text-fg-subtle uppercase">
-                    {entry.group}
+                  <div className="flex items-center gap-1.5 px-2 pt-2.5 pb-1">
+                    <span
+                      className={cn(
+                        "px-1.5 py-0.5 rounded-[4px] font-mono text-[9px] font-bold tracking-wider uppercase",
+                        CATEGORY_THEME[entry.group]?.badge,
+                      )}
+                    >
+                      {entry.group}
+                    </span>
+                    <span className="h-px flex-1 bg-line/60" />
                   </div>
                 )}
                 <button

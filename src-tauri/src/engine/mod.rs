@@ -233,6 +233,7 @@ pub async fn execute_with_prompts(
                 run_id,
                 sink,
                 control,
+                prompter,
                 &effective_values,
                 sandbox_ctx.as_ref(),
                 run_mode,
@@ -514,6 +515,7 @@ async fn automated_step(
     run_id: &str,
     sink: &dyn EventSink,
     control: &RunControl,
+    prompter: &dyn Prompter,
     values: &BTreeMap<String, String>,
     sandbox_ctx: Option<&SandboxContext>,
     run_mode: RunMode,
@@ -645,6 +647,11 @@ async fn automated_step(
                 sandbox_ctx,
                 &reporter,
                 run_mode,
+                run_id,
+                node_id,
+                sink,
+                control,
+                prompter,
             )
             .await
         }
@@ -660,26 +667,21 @@ async fn automated_step(
         }
 
         NodePayload::BumpVersion(data) => {
+            let in_val = if let Some(resolved) = values.get(&data.variable_in) {
+                resolved.clone()
+            } else {
+                substitute(&data.variable_in, values, Quoting::Raw)
+            };
+            let prefix_val = data.prefix.as_ref().map(|p| substitute(p, values, Quoting::Raw));
+            let suffix_val = data.suffix.as_ref().map(|s| substitute(s, values, Quoting::Raw));
+
             steps::run_bump_version(
                 data,
-                substitute(&data.variable_in, values, Quoting::Raw),
+                in_val,
+                prefix_val,
+                suffix_val,
                 working_dir,
                 &reporter,
-            )
-            .await
-        }
-
-        NodePayload::AiCommit(data) => {
-            let prompt = data.prompt.as_ref().map(|p| substitute(p, values, Quoting::Raw));
-            let input_text = data.input_variable.as_ref().map(|v| substitute(v, values, Quoting::Raw));
-            steps::run_ai_commit(
-                data,
-                prompt,
-                input_text,
-                control,
-                working_dir,
-                &reporter,
-                run_mode,
             )
             .await
         }
@@ -972,14 +974,23 @@ fn branch_options(workflow: &Workflow, node_id: &str) -> Vec<PromptOption> {
         let Some(target) = workflow.node(&edge.target) else {
             continue;
         };
-        if !target.is_runnable() {
-            continue;
+        if target.is_frame() {
+            for node in &workflow.nodes {
+                if node.frame_id() == Some(&edge.target) && node.is_runnable() && seen.insert(node.id.as_str()) {
+                    options.push(PromptOption {
+                        node_id: node.id.clone(),
+                        label: format!("{} (in {})", node.title(), target.title()),
+                        detail: node.detail(),
+                    });
+                }
+            }
+        } else if target.is_runnable() {
+            options.push(PromptOption {
+                node_id: target.id.clone(),
+                label: target.title(),
+                detail: target.detail(),
+            });
         }
-        options.push(PromptOption {
-            node_id: target.id.clone(),
-            label: target.title(),
-            detail: target.detail(),
-        });
     }
 
     options
@@ -1013,6 +1024,49 @@ fn is_env_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QuoteContext {
+    Single,
+    Double,
+    Bare,
+}
+
+fn quote_context_at(text: &str, byte_offset: usize) -> QuoteContext {
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+
+    for (idx, ch) in text.char_indices() {
+        if idx >= byte_offset {
+            break;
+        }
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' && !in_single {
+            escaped = true;
+            continue;
+        }
+        if ch == '\'' && !in_double {
+            in_single = !in_single;
+            continue;
+        }
+        if ch == '"' && !in_single {
+            in_double = !in_double;
+            continue;
+        }
+    }
+
+    if in_single {
+        QuoteContext::Single
+    } else if in_double {
+        QuoteContext::Double
+    } else {
+        QuoteContext::Bare
+    }
+}
+
 /// Replace `{{name}}` with what an ask step collected.
 ///
 /// Unknown names are left alone: they are the up-front `{{placeholder}}`s the
@@ -1031,9 +1085,8 @@ fn substitute(text: &str, values: &BTreeMap<String, String>, quoting: Quoting) -
             if let Some(end) = text[i + 2..].find("}}") {
                 let name = text[i + 2..i + 2 + end].trim();
                 if let Some(value) = values.get(name) {
-                    let before = text[..i].chars().last();
-                    let after = text[i + 4 + end..].chars().next();
-                    out.push_str(&quoted(value, quoting, before, after));
+                    let ctx = quote_context_at(text, i);
+                    out.push_str(&quoted(value, quoting, ctx));
                     i += 4 + end;
                     continue;
                 }
@@ -1050,30 +1103,31 @@ fn substitute(text: &str, values: &BTreeMap<String, String>, quoting: Quoting) -
 /// Escape a value for the context it lands in. Mirrors the front end's
 /// `fillPlaceholders`, so a value behaves the same whether it was asked for
 /// before the run or during it.
-fn quoted(value: &str, quoting: Quoting, before: Option<char>, after: Option<char>) -> String {
+fn quoted(value: &str, quoting: Quoting, ctx: QuoteContext) -> String {
     if quoting == Quoting::Raw {
         return value.to_string();
     }
 
-    // Already inside double quotes: neutralise what the shell would expand.
-    if before == Some('"') && after == Some('"') {
-        return value
-            .chars()
-            .flat_map(|c| {
-                if matches!(c, '"' | '\\' | '$' | '`') {
-                    vec!['\\', c]
-                } else {
-                    vec![c]
-                }
-            })
-            .collect();
+    match ctx {
+        QuoteContext::Double => {
+            value
+                .chars()
+                .flat_map(|c| {
+                    if matches!(c, '"' | '\\' | '$' | '`') {
+                        vec!['\\', c]
+                    } else {
+                        vec![c]
+                    }
+                })
+                .collect()
+        }
+        QuoteContext::Single => {
+            value.replace('\'', r"'\''")
+        }
+        QuoteContext::Bare => {
+            format!("'{}'", value.replace('\'', r"'\''"))
+        }
     }
-    // Already inside single quotes: only an apostrophe can escape.
-    if before == Some('\'') && after == Some('\'') {
-        return value.replace('\'', r"'\''");
-    }
-    // Bare: quote it ourselves so spaces stay one argument.
-    format!("'{}'", value.replace('\'', r"'\''"))
 }
 
 #[cfg(test)]
@@ -1982,5 +2036,30 @@ mod tests {
         let out = sink.stdout_lines();
         assert!(out.contains(&"A=super_secret_value".to_string()));
         assert!(!out.contains(&"B=super_secret_value".to_string()));
+    }
+
+    #[test]
+    fn substitution_handles_quotes_correctly() {
+        let mut map = BTreeMap::new();
+        map.insert("version".to_string(), "1.2.3".to_string());
+        map.insert("msg".to_string(), "don't fail".to_string());
+
+        // Inside double quotes with other text
+        assert_eq!(
+            substitute("echo \"Release v{{version}} (prod)\"", &map, Quoting::Shell),
+            "echo \"Release v1.2.3 (prod)\""
+        );
+
+        // Inside single quotes
+        assert_eq!(
+            substitute("echo 'Literal {{version}}'", &map, Quoting::Shell),
+            "echo 'Literal 1.2.3'"
+        );
+
+        // Bare (unquoted)
+        assert_eq!(
+            substitute("git commit -m {{msg}}", &map, Quoting::Shell),
+            "git commit -m 'don'\\''t fail'"
+        );
     }
 }

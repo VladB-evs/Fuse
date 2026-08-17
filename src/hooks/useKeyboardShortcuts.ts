@@ -20,39 +20,13 @@ import { parseFuseJson } from "@/lib/jsonImporter";
 
 
 /**
- * Text editing always wins when focused on a single active block.
- * When multiple items or frames are selected, canvas commands (like Delete) take precedence.
+ * Text editing always wins when focused on any input or textarea.
  */
 function isTyping(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   if (!el) return false;
   const tag = el.tagName;
-  if (tag !== "INPUT" && tag !== "TEXTAREA" && !el.isContentEditable) return false;
-
-  const { nodes, edges } = useWorkflowStore.getState();
-  const selectedNodes = nodes.filter((n) => n.selected);
-  const selectedEdges = edges.filter((e) => e.selected);
-
-  // If multiple items are selected, or any frame is selected, or edges are selected,
-  // the user is interacting with canvas elements rather than typing into a single input
-  if (
-    selectedNodes.length > 1 ||
-    selectedNodes.some((n) => n.type === "frame") ||
-    selectedEdges.length > 0
-  ) {
-    return false;
-  }
-
-  // If exactly one node is selected, check if the focused element is within that node
-  const singleSelected = selectedNodes[0];
-  if (selectedNodes.length === 1 && singleSelected) {
-    const nodeEl = document.querySelector(`.react-flow__node[data-id="${singleSelected.id}"]`);
-    if (!nodeEl || !nodeEl.contains(el)) {
-      return false;
-    }
-  }
-
-  return true;
+  return tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable;
 }
 
 export function useKeyboardShortcuts() {
@@ -92,7 +66,24 @@ export function useKeyboardShortcuts() {
       const typing = isTyping(event.target);
       const ui = useUIStore.getState();
 
-      // --- Always available, even mid-typing --------------------------------
+      const isAnyModalOpen =
+        !!ui.scriptEditorNodeId ||
+        !!ui.httpEditorNodeId ||
+        !!ui.waitEditorNodeId ||
+        ui.paletteOpen ||
+        ui.docsOpen ||
+        ui.importJsonOpen ||
+        ui.settingsOpen ||
+        ui.renameOpen ||
+        !!ui.inputRequest ||
+        !!ui.picker;
+
+      // If a modal or editor is open, never trigger background canvas shortcuts
+      if (isAnyModalOpen) {
+        return;
+      }
+
+      // --- Always available on canvas, even mid-typing --------------------------------
       if (mod && event.key === "k") {
         event.preventDefault();
         ui.setPaletteOpen(!ui.paletteOpen);

@@ -49,16 +49,20 @@ export type UIState = {
   /** The node picker, when it is open. */
   picker: PickerRequest | null;
   leftSidebarOpen: boolean;
-  rightSidebarOpen: boolean;
   availableUpdate: string | null;
   minimapOpen: boolean;
+  /** Script node currently open in the floating code editor. */
+  scriptEditorNodeId: string | null;
+  /** HTTP node body currently open in the floating JSON/body editor. */
+  httpEditorNodeId: string | null;
+  /** Wait node polling command currently open in the floating editor. */
+  waitEditorNodeId: string | null;
 
   inspect: (nodeId: string | null, options?: { open?: boolean; manual?: boolean }) => void;
   setFollowRun: (follow: boolean) => void;
   setOutputOpen: (open: boolean) => void;
   toggleOutput: () => void;
   toggleLeftSidebar: () => void;
-  toggleRightSidebar: () => void;
   toggleMinimap: () => void;
   setMinimapOpen: (open: boolean) => void;
   setPaletteOpen: (open: boolean) => void;
@@ -69,6 +73,12 @@ export type UIState = {
   setDropFrame: (frameId: string | null) => void;
   setDropEdge: (edgeId: string | null) => void;
   setAvailableUpdate: (version: string | null) => void;
+  openScriptEditor: (nodeId: string) => void;
+  closeScriptEditor: () => void;
+  openHttpEditor: (nodeId: string) => void;
+  closeHttpEditor: () => void;
+  openWaitEditor: (nodeId: string) => void;
+  closeWaitEditor: () => void;
   /** Resolves with the entered values, or `null` if the run was called off. */
   askForInputs: (fields: string[], blocks: InputPreviewBlock[]) => Promise<InputValues | null>;
   answerInputs: (values: InputValues | null) => void;
@@ -97,9 +107,11 @@ export const useUIStore = create<UIState>()((set) => ({
   toast: null,
   picker: null,
   leftSidebarOpen: true,
-  rightSidebarOpen: false,
   availableUpdate: null,
   minimapOpen: true,
+  scriptEditorNodeId: null,
+  httpEditorNodeId: null,
+  waitEditorNodeId: null,
 
   inspect: (nodeId, options) =>
     set((state) => ({
@@ -115,7 +127,6 @@ export const useUIStore = create<UIState>()((set) => ({
   toggleOutput: () => set((s) => ({ outputOpen: !s.outputOpen })),
   
   toggleLeftSidebar: () => set((s) => ({ leftSidebarOpen: !s.leftSidebarOpen })),
-  toggleRightSidebar: () => set((s) => ({ rightSidebarOpen: !s.rightSidebarOpen })),
   toggleMinimap: () => set((s) => ({ minimapOpen: !s.minimapOpen })),
   setMinimapOpen: (open) => set({ minimapOpen: open }),
   setPaletteOpen: (open) => set({ paletteOpen: open }),
@@ -124,6 +135,12 @@ export const useUIStore = create<UIState>()((set) => ({
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setRenameOpen: (open) => set({ renameOpen: open }),
   setAvailableUpdate: (version) => set({ availableUpdate: version }),
+  openScriptEditor: (nodeId) => set({ scriptEditorNodeId: nodeId }),
+  closeScriptEditor: () => set({ scriptEditorNodeId: null }),
+  openHttpEditor: (nodeId) => set({ httpEditorNodeId: nodeId }),
+  closeHttpEditor: () => set({ httpEditorNodeId: null }),
+  openWaitEditor: (nodeId) => set({ waitEditorNodeId: nodeId }),
+  closeWaitEditor: () => set({ waitEditorNodeId: null }),
 
   setDropFrame: (frameId) =>
     set((state) => (state.dropFrameId === frameId ? state : { dropFrameId: frameId })),

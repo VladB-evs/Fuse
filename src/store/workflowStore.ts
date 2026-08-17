@@ -226,32 +226,6 @@ function fitFrames(
   return changed ? next : nodes;
 }
 
-/**
- * Recursively collects all member block nodes and nested child nodes belonging
- * to any frame in the doomed set so deleting a frame also deletes all of its contents.
- */
-function collectDoomedWithFrameMembers(nodes: FuseNode[], initialDoomed: Set<string>): Set<string> {
-  const doomed = new Set(initialDoomed);
-  let added = true;
-  while (added) {
-    added = false;
-    for (const node of nodes) {
-      if (!doomed.has(node.id)) {
-        if (
-          node.data &&
-          "frameId" in node.data &&
-          typeof node.data.frameId === "string" &&
-          doomed.has(node.data.frameId)
-        ) {
-          doomed.add(node.id);
-          added = true;
-        }
-      }
-    }
-  }
-  return doomed;
-}
-
 /** Deleting a frame frees its blocks rather than leaving them pointing at a ghost. */
 function released(nodes: FuseNode[], removedIds: Set<string>): FuseNode[] {
   return nodes.map((node) =>
@@ -278,10 +252,10 @@ function emptyCommand(label = "Terminal"): CommandData {
  * These defaults are the Rust ones (`impl Default` in `model.rs`) written out
  * again, so a block created here and a block loaded from disk are identical.
  */
-export function emptyBlock(kind: BlockKind): BlockData {
+export function emptyBlock(kind: BlockKind, label?: string): BlockData {
   switch (kind) {
     case "command":
-      return emptyCommand();
+      return emptyCommand(label);
     case "approval":
       return {
         label: "Confirm",
@@ -396,18 +370,6 @@ export function emptyBlock(kind: BlockKind): BlockData {
         variableOut: "",
         part: "patch",
       };
-    case "ai_commit":
-      return {
-        label: "AI Summarizer",
-        frameId: null,
-        prompt: "Summarize the changes into a concise conventional git commit message",
-        inputVariable: "",
-        variable: "commit_message",
-        scope: "staged",
-        style: "conventional",
-        workingDir: null,
-        continueOnError: false,
-      };
   }
 }
 
@@ -447,6 +409,76 @@ function nextFrameName(nodes: FuseNode[]): string {
   const taken = new Set(nodes.filter(isFrameNode).map((n) => n.data.label.trim()));
   for (let i = 1; ; i += 1) {
     const candidate = `Frame ${i}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+export function nextTerminalLabel(nodes: FuseNode[]): string {
+  const taken = new Set(
+    nodes
+      .filter((n) => n.type === "command")
+      .map((n) => ("label" in n.data && typeof n.data.label === "string" ? n.data.label.trim() : ""))
+      .filter(Boolean),
+  );
+  if (!taken.has("Terminal")) return "Terminal";
+  for (let i = 2; ; i += 1) {
+    const candidate = `Terminal ${i}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+export function nextHttpLabel(nodes: FuseNode[]): string {
+  const taken = new Set(
+    nodes
+      .filter((n) => n.type === "http")
+      .map((n) => ("label" in n.data && typeof n.data.label === "string" ? n.data.label.trim() : ""))
+      .filter(Boolean),
+  );
+  if (!taken.has("HTTP Request")) return "HTTP Request";
+  for (let i = 2; ; i += 1) {
+    const candidate = `HTTP Request ${i}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+export function nextConditionLabel(nodes: FuseNode[]): string {
+  const taken = new Set(
+    nodes
+      .filter((n) => n.type === "condition")
+      .map((n) => ("label" in n.data && typeof n.data.label === "string" ? n.data.label.trim() : ""))
+      .filter(Boolean),
+  );
+  if (!taken.has("If")) return "If";
+  for (let i = 2; ; i += 1) {
+    const candidate = `If ${i}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+export function nextChoiceLabel(nodes: FuseNode[]): string {
+  const taken = new Set(
+    nodes
+      .filter((n) => n.type === "choice")
+      .map((n) => ("label" in n.data && typeof n.data.label === "string" ? n.data.label.trim() : ""))
+      .filter(Boolean),
+  );
+  if (!taken.has("Choose")) return "Choose";
+  for (let i = 2; ; i += 1) {
+    const candidate = `Choose ${i}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+export function nextWaitLabel(nodes: FuseNode[]): string {
+  const taken = new Set(
+    nodes
+      .filter((n) => n.type === "wait")
+      .map((n) => ("label" in n.data && typeof n.data.label === "string" ? n.data.label.trim() : ""))
+      .filter(Boolean),
+  );
+  if (!taken.has("Wait")) return "Wait";
+  for (let i = 2; ; i += 1) {
+    const candidate = `Wait ${i}`;
     if (!taken.has(candidate)) return candidate;
   }
 }
@@ -894,11 +926,25 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
             y: at.y + NOMINAL_BLOCK.height / 2,
           });
 
+      const defaultLabel =
+        kind === "command"
+          ? nextTerminalLabel(state.nodes)
+          : kind === "http"
+          ? nextHttpLabel(state.nodes)
+          : kind === "condition"
+          ? nextConditionLabel(state.nodes)
+          : kind === "choice"
+          ? nextChoiceLabel(state.nodes)
+          : kind === "wait"
+          ? nextWaitLabel(state.nodes)
+          : undefined;
+      const baseBlock = emptyBlock(kind, defaultLabel);
+
       const node = {
         id,
         type: kind,
         position: at,
-        data: { ...emptyBlock(kind), frameId: frame?.id ?? null, ...(options?.prefill ?? {}) },
+        data: { ...baseBlock, frameId: frame?.id ?? null, ...(options?.prefill ?? {}) },
         selected: true,
         zIndex: Z_BLOCK,
       } as BlockNodeType;
@@ -980,7 +1026,11 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
       set((state) => ({
         edges: state.edges.map((e) =>
           e.id === id
-            ? { ...e, data: { ...e.data, disabled: !e.data?.disabled } }
+            ? {
+                ...e,
+                disabled: !(e.data?.disabled ?? (e as any).disabled),
+                data: { ...e.data, disabled: !(e.data?.disabled ?? (e as any).disabled) },
+              }
             : e,
         ),
         dirty: true,
@@ -1000,7 +1050,11 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
         ),
         edges: state.edges.map((e) =>
           eSet.has(e.id)
-            ? { ...e, data: { ...e.data, disabled: !e.data?.disabled } }
+            ? {
+                ...e,
+                disabled: !(e.data?.disabled ?? (e as any).disabled),
+                data: { ...e.data, disabled: !(e.data?.disabled ?? (e as any).disabled) },
+              }
             : e,
         ),
         dirty: true,
@@ -1010,7 +1064,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
     deleteNodes: (ids) => {
       if (ids.length === 0) return;
       pushHistory();
-      const doomed = collectDoomedWithFrameMembers(get().nodes, new Set(ids));
+      const doomed = new Set(ids);
       set((state) => ({
         nodes: fitFrames(released(state.nodes.filter((n) => !doomed.has(n.id)), doomed)),
         edges: state.edges.filter((e) => !doomed.has(e.source) && !doomed.has(e.target)),
@@ -1025,7 +1079,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
       if (nodeIds.length === 0 && edgeIds.length === 0) return;
 
       pushHistory();
-      const doomed = collectDoomedWithFrameMembers(state.nodes, new Set(nodeIds));
+      const doomed = new Set(nodeIds);
       const doomedEdges = new Set(edgeIds);
       set((s) => ({
         nodes: fitFrames(
@@ -1217,7 +1271,7 @@ export const useWorkflowStore = create<WorkflowState>()((set, get) => {
           target: e.target,
           sourceHandle: e.sourceHandle ?? null,
           targetHandle: e.targetHandle ?? null,
-          disabled: e.data?.disabled || (e as any).disabled || false,
+          disabled: e.data?.disabled !== undefined ? Boolean(e.data.disabled) : Boolean((e as any).disabled),
         })),
         createdAt: state.createdAt,
         updatedAt: state.updatedAt,

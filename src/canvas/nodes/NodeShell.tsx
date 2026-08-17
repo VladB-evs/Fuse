@@ -11,7 +11,7 @@ import {
   releaseBlockFromFrame,
   runSingleNode,
 } from "@/lib/actions";
-import { ACCENT_TEXT, ACCENT_TINT, catalogEntry } from "@/lib/catalog";
+import { ACCENT_TEXT, ACCENT_TINT, CATEGORY_THEME, catalogEntry } from "@/lib/catalog";
 import { cn, formatDuration, prettyPath } from "@/lib/utils";
 import { STATUS_LABEL } from "@/lib/status";
 import {
@@ -38,6 +38,7 @@ export function NodeShell({
   runnable = true,
   ports,
   disabled: disabledProp,
+  width = 300,
   className,
   style,
   resizeControl,
@@ -55,6 +56,7 @@ export function NodeShell({
   /** Custom connection ports, for kinds that have more than one way out. */
   ports?: ReactNode;
   disabled?: boolean;
+  width?: number | string;
   className?: string;
   style?: React.CSSProperties;
   resizeControl?: ReactNode;
@@ -75,6 +77,7 @@ export function NodeShell({
   const frame = useWorkflowStore((s) =>
     frameId ? s.nodes.find((n) => n.id === frameId && isFrameNode(n)) : undefined,
   ) as FrameNodeType | undefined;
+  const workflowDir = useWorkflowStore((s) => s.workingDir);
 
   const [editingLabel, setEditingLabel] = useState(false);
 
@@ -87,10 +90,12 @@ export function NodeShell({
     return STATUS_LABEL[status];
   })();
 
+  const computedWidth = typeof width === "number" ? `${width}px` : width;
+
   return (
     <div
-      className={cn("group relative", style?.width ? "" : "w-[288px]", className)}
-      style={style}
+      className={cn("group relative", className)}
+      style={{ width: computedWidth, ...style }}
     >
       <div
         className={cn(
@@ -111,10 +116,14 @@ export function NodeShell({
         <div
           className={cn(
             "flex h-[30px] shrink-0 items-center gap-1.5 border-b border-line/70 px-2.5",
-            ACCENT_TINT[entry.accent],
+            CATEGORY_THEME[entry.group]?.headerBg || ACCENT_TINT[entry.accent],
           )}
         >
-          <Icon size={12} strokeWidth={1.75} className={cn("shrink-0", ACCENT_TEXT[entry.accent])} />
+          <Icon
+            size={12}
+            strokeWidth={1.75}
+            className={cn("shrink-0", CATEGORY_THEME[entry.group]?.icon || ACCENT_TEXT[entry.accent])}
+          />
 
           {editingLabel ? (
             <input
@@ -149,6 +158,16 @@ export function NodeShell({
               {label}
             </button>
           )}
+
+          {/* Category Badge Pill */}
+          <span
+            className={cn(
+              "px-1.5 py-0.5 rounded-[4px] font-mono text-[8.5px] font-bold tracking-wider uppercase shrink-0 select-none",
+              CATEGORY_THEME[entry.group]?.badge,
+            )}
+          >
+            {entry.group}
+          </span>
 
           {disabled ? (
             <HeaderButton
@@ -218,13 +237,27 @@ export function NodeShell({
               title={
                 frame.data.workingDir
                   ? `In frame “${frame.data.label}” — runs in ${frame.data.workingDir}`
+                  : workflowDir
+                  ? `In frame “${frame.data.label}” — inherits workflow folder ${workflowDir}`
                   : `In frame “${frame.data.label}” — no folder set yet`
               }
             >
               <FrameIcon size={9} strokeWidth={2} className="shrink-0" />
               <span className="truncate font-mono">
-                {frame.data.workingDir ? prettyPath(frame.data.workingDir) : frame.data.label}
+                {frame.data.workingDir
+                  ? prettyPath(frame.data.workingDir)
+                  : workflowDir
+                  ? prettyPath(workflowDir)
+                  : frame.data.label}
               </span>
+            </span>
+          ) : workflowDir ? (
+            <span
+              className="flex min-w-0 flex-1 items-center gap-1 truncate text-[10px] text-fg-subtle"
+              title={`Inherits workflow folder: ${workflowDir}`}
+            >
+              <Folder size={9} strokeWidth={1.75} className="shrink-0" />
+              <span className="truncate font-mono">{prettyPath(workflowDir)}</span>
             </span>
           ) : workingDir !== undefined ? (
             <button

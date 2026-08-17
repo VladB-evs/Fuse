@@ -12,9 +12,6 @@ import {
   Frame,
   Globe,
   GitBranch,
-  GitCommit,
-  GitMerge,
-  GitPullRequest,
   ShieldQuestionMark,
   Split,
   TerminalSquare,
@@ -25,12 +22,13 @@ import {
   FileDown,
   Variable,
   ArrowUpFromLine,
-  Sparkles,
   type LucideIcon,
 } from "lucide-react";
 import type { NodeKind, BlockData } from "@/types/workflow";
 
 export type Accent = "fg" | "warn" | "accent" | "success" | "danger" | "cyan";
+
+export type NodeGroup = "Run" | "Flow" | "Values" | "Layout";
 
 export type CatalogEntry = {
   kind: NodeKind;
@@ -41,7 +39,7 @@ export type CatalogEntry = {
   detail: string;
   icon: LucideIcon;
   accent: Accent;
-  group: "Run" | "Flow" | "Values" | "Layout" | "Git";
+  group: NodeGroup;
   /** Extra words the picker's search should match on. */
   keywords: string[];
   /** Shown on the right of a picker row, when there is one. */
@@ -55,14 +53,70 @@ export type CatalogEntry = {
   prefill?: Partial<BlockData>;
 };
 
+export const CATEGORY_THEME: Record<
+  NodeGroup,
+  {
+    name: string;
+    text: string;
+    bg: string;
+    headerBg: string;
+    border: string;
+    badge: string;
+    icon: string;
+    accent: Accent;
+  }
+> = {
+  Run: {
+    name: "Run",
+    text: "text-sky-400",
+    bg: "bg-sky-500/10",
+    headerBg: "bg-sky-500/[0.08]",
+    border: "border-sky-500/30",
+    badge: "bg-sky-500/15 text-sky-400 border border-sky-500/25",
+    icon: "text-sky-400",
+    accent: "cyan",
+  },
+  Flow: {
+    name: "Flow",
+    text: "text-amber-400",
+    bg: "bg-amber-500/10",
+    headerBg: "bg-amber-500/[0.08]",
+    border: "border-amber-500/30",
+    badge: "bg-amber-500/15 text-amber-400 border border-amber-500/25",
+    icon: "text-amber-400",
+    accent: "warn",
+  },
+  Values: {
+    name: "Values",
+    text: "text-emerald-400",
+    bg: "bg-emerald-500/10",
+    headerBg: "bg-emerald-500/[0.08]",
+    border: "border-emerald-500/30",
+    badge: "bg-emerald-500/15 text-emerald-400 border border-emerald-500/25",
+    icon: "text-emerald-400",
+    accent: "success",
+  },
+  Layout: {
+    name: "Layout",
+    text: "text-purple-400",
+    bg: "bg-purple-500/10",
+    headerBg: "bg-purple-500/[0.08]",
+    border: "border-purple-500/30",
+    badge: "bg-purple-500/15 text-purple-400 border border-purple-500/25",
+    icon: "text-purple-400",
+    accent: "fg",
+  },
+};
+
 export const CATALOG: CatalogEntry[] = [
+  // --- Category: Run (Cyan / Sky) ---
   {
     kind: "command",
     label: "Command",
     summary: "Run a shell command",
     detail: "One shell line, with pipes, && and your real PATH",
     icon: TerminalSquare,
-    accent: "fg",
+    accent: "cyan",
     group: "Run",
     keywords: ["terminal", "shell", "bash", "run", "cli"],
     shortcut: "A",
@@ -102,13 +156,15 @@ export const CATALOG: CatalogEntry[] = [
       example: "GET https://api.github.com/repos/vladb/fuse",
     },
   },
+
+  // --- Category: Flow (Amber / Gold) ---
   {
     kind: "condition",
     label: "If",
     summary: "Branch on a test",
     detail: "Exit 0 takes the yes path, anything else takes no",
     icon: GitBranch,
-    accent: "accent",
+    accent: "warn",
     group: "Flow",
     keywords: ["condition", "branch", "test", "else", "when", "guard"],
     documentation: {
@@ -123,7 +179,7 @@ export const CATALOG: CatalogEntry[] = [
     summary: "Ask which path to take",
     detail: "Pauses and lets you pick between the connected steps",
     icon: Split,
-    accent: "accent",
+    accent: "warn",
     group: "Flow",
     keywords: ["branch", "pick", "fork", "path", "manual"],
     documentation: {
@@ -162,6 +218,8 @@ export const CATALOG: CatalogEntry[] = [
       example: "Wait 2s, or until: curl -fsS localhost:3000/health",
     },
   },
+
+  // --- Category: Values (Emerald / Green) ---
   {
     kind: "input",
     label: "Ask",
@@ -241,32 +299,35 @@ export const CATALOG: CatalogEntry[] = [
     kind: "bump_version",
     label: "Bump Version",
     summary: "Increment a semantic version",
-    detail: "Bumps the major, minor, or patch part of a v1.2.3 string",
+    detail: "Bumps the major, minor, or patch part of a v1.2.3 or 0.1 string",
     icon: ArrowUpFromLine,
     accent: "success",
     group: "Values",
     keywords: ["bump", "version", "semver", "tag", "release", "increment"],
     documentation: {
-      what: "Parses a semantic version from an input variable and increments the specified part (major, minor, or patch).",
+      what: "Parses a semantic or 2-part version from an input variable and increments the specified part (major, minor, or patch).",
       when: "Use this when you want to automatically calculate the next version tag for a git release.",
       example: "Bump minor of {{current_version}} into {{next_version}}",
     },
   },
   {
-    kind: "ai_commit",
-    label: "AI Summarizer / Model",
-    summary: "Summarize & transform with AI",
-    detail: "Receives variables/diffs, summarizes with prompt, and outputs variable",
-    icon: Sparkles,
-    accent: "accent",
+    kind: "note",
+    label: "Note / Markdown",
+    summary: "Add a markdown note",
+    detail: "Supports variables, live markdown preview, and output variables",
+    icon: StickyNote,
+    accent: "success",
     group: "Values",
-    keywords: ["ai", "commit", "intelligence", "diff", "summary", "prompt", "model", "smart", "llm", "values"],
+    keywords: ["text", "comment", "documentation", "markdown", "sticky", "variable", "template"],
+    shortcut: "N",
     documentation: {
-      what: "Takes input from an incoming variable or git diff, applies an AI prompt/summary, and outputs the result into a variable.",
-      when: "Use this to generate conventional commit messages from git diff, summarize logs, or transform text before downstream steps.",
-      example: "Feed {{git_diff}} into AI -> Output {{commit_message}} -> Run git commit -m '{{commit_message}}'",
+      what: "A rich markdown note that evaluates template variables (like {{commit_message}} or {{version}}), renders live formatted markdown, and can save its evaluated content to a variable for other notes and steps to use.",
+      when: "Use this to create dynamic changelogs, compose messages, explain workflows, or pass templates to downstream blocks.",
+      example: "# Release {{next_version}}\n\n{{commit_message}}",
     },
   },
+
+  // --- Category: Layout ---
   {
     kind: "frame",
     label: "Frame",
@@ -283,142 +344,6 @@ export const CATALOG: CatalogEntry[] = [
       example: "(Drag blocks inside to assign them to ~/my-project)",
     },
   },
-  {
-    kind: "note",
-    label: "Note / Markdown",
-    summary: "Add a markdown note",
-    detail: "Supports variables, live markdown preview, and output variables",
-    icon: StickyNote,
-    accent: "fg",
-    group: "Values",
-    keywords: ["text", "comment", "documentation", "markdown", "sticky", "variable", "template"],
-    shortcut: "N",
-    documentation: {
-      what: "A rich markdown note that evaluates template variables (like {{commit_message}} or {{version}}), renders live formatted markdown, and can save its evaluated content to a variable for other notes and steps to use.",
-      when: "Use this to create dynamic changelogs, compose messages, explain workflows, or pass templates to downstream blocks.",
-      example: "# Release {{next_version}}\n\n{{commit_message}}",
-    },
-  },
-{
-    kind: "command", label: "Git Init", summary: "Initialize repository", detail: "git init",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "init"],
-    documentation: { what: "Initializes a Git repository.", when: "Starting a new project.", example: "git init" },
-    prefill: { label: "Git Init", command: "git init" },
-  },
-  {
-    kind: "command", label: "Git Clone", summary: "Clone repository", detail: "git clone",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "clone"],
-    documentation: { what: "Clones a repository.", when: "Downloading a project.", example: "git clone {{url}}" },
-    prefill: { label: "Git Clone", command: "git clone \"{{repository_url}}\"" },
-  },
-  {
-    kind: "command", label: "Git Status", summary: "Show status", detail: "git status",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "status"],
-    documentation: { what: "Shows working tree status.", when: "Checking for changes.", example: "git status" },
-    prefill: { label: "Git Status", command: "git status" },
-  },
-  {
-    kind: "command", label: "Git Add All", summary: "Stage all changes", detail: "git add .",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "add"],
-    documentation: { what: "Stages all changes.", when: "Preparing to commit.", example: "git add ." },
-    prefill: { label: "Git Add All", command: "git add ." },
-  },
-  {
-    kind: "command", label: "Git Commit", summary: "Commit changes", detail: "git commit",
-    icon: GitCommit, accent: "cyan", group: "Git", keywords: ["git", "commit"],
-    documentation: { what: "Commits staged changes.", when: "Saving work.", example: "git commit -m 'msg'" },
-    prefill: { label: "Git Commit", command: "git commit -m \"{{commit_message}}\"" },
-  },
-  {
-    kind: "command", label: "Git Push", summary: "Push commits", detail: "git push",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "push"],
-    documentation: { what: "Pushes commits to remote.", when: "Sharing work.", example: "git push" },
-    prefill: { label: "Git Push", command: "git push origin \"{{branch_name}}\"" },
-  },
-  {
-    kind: "command", label: "Git Pull", summary: "Pull commits", detail: "git pull",
-    icon: GitPullRequest, accent: "cyan", group: "Git", keywords: ["git", "pull"],
-    documentation: { what: "Pulls commits from remote.", when: "Updating branch.", example: "git pull" },
-    prefill: { label: "Git Pull", command: "git pull origin \"{{branch_name}}\"" },
-  },
-  {
-    kind: "command", label: "Git Branch", summary: "List branches", detail: "git branch",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "branch"],
-    documentation: { what: "Lists branches.", when: "Checking branches.", example: "git branch" },
-    prefill: { label: "Git Branch", command: "git branch" },
-  },
-  {
-    kind: "command", label: "Git Checkout", summary: "Switch branch", detail: "git checkout",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "checkout"],
-    documentation: { what: "Switches branch.", when: "Changing branches.", example: "git checkout main" },
-    prefill: { label: "Git Checkout", command: "git checkout \"{{branch_name}}\"" },
-  },
-  {
-    kind: "command", label: "Git Merge", summary: "Merge branch", detail: "git merge",
-    icon: GitMerge, accent: "cyan", group: "Git", keywords: ["git", "merge"],
-    documentation: { what: "Merges a branch.", when: "Integrating changes.", example: "git merge feat" },
-    prefill: { label: "Git Merge", command: "git merge \"{{branch_name}}\"" },
-  },
-  {
-    kind: "command", label: "Git Rebase", summary: "Rebase branch", detail: "git rebase",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "rebase"],
-    documentation: { what: "Rebases current branch.", when: "Updating from main.", example: "git rebase main" },
-    prefill: { label: "Git Rebase", command: "git rebase \"{{branch_name}}\"" },
-  },
-  {
-    kind: "command", label: "Git Cherry-Pick", summary: "Cherry-pick commit", detail: "git cherry-pick",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "cherry", "pick"],
-    documentation: { what: "Cherry-picks a commit.", when: "Applying specific commit.", example: "git cherry-pick {{hash}}" },
-    prefill: { label: "Git Cherry-Pick", command: "git cherry-pick \"{{commit_hash}}\"" },
-  },
-  {
-    kind: "command", label: "Git Tag", summary: "Create tag", detail: "git tag",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "tag"],
-    documentation: { what: "Creates a new tag.", when: "Marking a release.", example: "git tag v1.0.0" },
-    prefill: { label: "Git Tag", command: "git tag \"{{tag_name}}\"" },
-  },
-  {
-    kind: "command", label: "Git Reset", summary: "Reset current HEAD", detail: "git reset",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "reset"],
-    documentation: { what: "Resets HEAD.", when: "Undoing commits.", example: "git reset --hard HEAD~1" },
-    prefill: { label: "Git Reset", command: "git reset --hard \"{{commit_hash}}\"" },
-  },
-  {
-    kind: "command", label: "Git Revert", summary: "Revert commit", detail: "git revert",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "revert"],
-    documentation: { what: "Reverts a commit.", when: "Undoing a specific commit.", example: "git revert {{hash}}" },
-    prefill: { label: "Git Revert", command: "git revert \"{{commit_hash}}\"" },
-  },
-  {
-    kind: "command", label: "Git Remote Add", summary: "Add remote", detail: "git remote add",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "remote"],
-    documentation: { what: "Adds a new remote.", when: "Connecting to a remote repo.", example: "git remote add origin {{url}}" },
-    prefill: { label: "Git Remote Add", command: "git remote add origin \"{{remote_url}}\"" },
-  },
-  {
-    kind: "command", label: "Git Log", summary: "Show commit log", detail: "git log",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "log"],
-    documentation: { what: "Shows commit history.", when: "Reviewing past changes.", example: "git log" },
-    prefill: { label: "Git Log", command: "git log --oneline -n 10" },
-  },
-  {
-    kind: "command", label: "Git Diff", summary: "Show changes", detail: "git diff",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "diff"],
-    documentation: { what: "Shows file differences.", when: "Reviewing uncommitted changes.", example: "git diff" },
-    prefill: { label: "Git Diff", command: "git diff" },
-  },
-  {
-    kind: "command", label: "Git Stash", summary: "Stash changes", detail: "git stash",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "stash"],
-    documentation: { what: "Stashes uncommitted changes.", when: "Temporarily clearing working directory.", example: "git stash" },
-    prefill: { label: "Git Stash", command: "git stash" },
-  },
-  {
-    kind: "command", label: "Git Stash Pop", summary: "Pop stashed changes", detail: "git stash pop",
-    icon: GitBranch, accent: "cyan", group: "Git", keywords: ["git", "stash", "pop"],
-    documentation: { what: "Pops stashed changes.", when: "Restoring stashed changes.", example: "git stash pop" },
-    prefill: { label: "Git Stash Pop", command: "git stash pop" },
-  }
 ];
 
 const BY_KIND = new Map(CATALOG.map((entry) => [entry.kind, entry]));
@@ -429,29 +354,29 @@ export function catalogEntry(kind: NodeKind): CatalogEntry {
 
 export const ACCENT_TEXT: Record<Accent, string> = {
   fg: "text-fg-muted",
-  warn: "text-warn",
-  accent: "text-accent",
-  success: "text-success",
-  danger: "text-danger",
-  cyan: "text-[#3ec9d6]",
+  warn: "text-amber-400",
+  accent: "text-amber-400",
+  success: "text-emerald-400",
+  danger: "text-rose-400",
+  cyan: "text-sky-400",
 };
 
 export const ACCENT_BORDER: Record<Accent, string> = {
   fg: "border-line",
-  warn: "border-warn/45",
-  accent: "border-accent/45",
-  success: "border-success/40",
-  danger: "border-danger/45",
-  cyan: "border-[#3ec9d6]/40",
+  warn: "border-amber-500/40",
+  accent: "border-amber-500/40",
+  success: "border-emerald-500/40",
+  danger: "border-rose-500/40",
+  cyan: "border-sky-500/40",
 };
 
 export const ACCENT_TINT: Record<Accent, string> = {
   fg: "bg-white/[0.02]",
-  warn: "bg-warn/8",
-  accent: "bg-accent/8",
-  success: "bg-success/8",
-  danger: "bg-danger/8",
-  cyan: "bg-[#3ec9d6]/8",
+  warn: "bg-amber-500/[0.08]",
+  accent: "bg-amber-500/[0.08]",
+  success: "bg-emerald-500/[0.08]",
+  danger: "bg-rose-500/[0.08]",
+  cyan: "bg-sky-500/[0.08]",
 };
 
 /** Ranked matches for a picker query. Empty query keeps catalogue order. */

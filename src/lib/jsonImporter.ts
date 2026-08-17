@@ -38,7 +38,6 @@ const VALID_NODE_KINDS: Set<string> = new Set([
   "write_file",
   "set_variable",
   "bump_version",
-  "ai_commit",
 ]);
 
 /**

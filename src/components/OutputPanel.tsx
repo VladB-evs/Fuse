@@ -21,7 +21,7 @@ import { StatusDot } from "@/components/ui/StatusDot";
 import { TerminalLine } from "@/components/ui/TerminalLine";
 import { cn, formatDuration, formatTime, prettyPath } from "@/lib/utils";
 import { STATUS_LABEL } from "@/lib/status";
-import { catalogEntry } from "@/lib/catalog";
+import { catalogEntry, CATEGORY_THEME } from "@/lib/catalog";
 import {
   applySandboxChangesAction,
   discardSandboxAction,
@@ -477,8 +477,6 @@ function stepDetail(node: BlockNodeType): string {
       return `Set: ${node.data.variable.trim()}`;
     case "bump_version":
       return `Bump: ${node.data.variableIn.trim()}`;
-    case "ai_commit":
-      return `AI Commit: ${node.data.variable.trim()}`;
     default:
       return "message" in node.data ? node.data.message.trim() : "Unknown";
   }
@@ -499,7 +497,8 @@ function StepList({
         <li className="px-3 py-2 text-[11px] text-fg-subtle">No blocks yet</li>
       )}
       {steps.map((step) => {
-        const Icon = catalogEntry(step.kind).icon;
+        const entry = catalogEntry(step.kind);
+        const Icon = entry.icon;
         return (
           <li key={step.id}>
             <button
@@ -512,7 +511,11 @@ function StepList({
             >
               <StepGlyph status={step.status} />
               {step.kind !== "command" && (
-                <Icon size={10} strokeWidth={1.75} className="shrink-0 text-fg-subtle" />
+                <Icon
+                  size={10}
+                  strokeWidth={1.75}
+                  className={cn("shrink-0", CATEGORY_THEME[entry.group]?.icon || "text-fg-subtle")}
+                />
               )}
               <span className="min-w-0 flex-1">
                 <span

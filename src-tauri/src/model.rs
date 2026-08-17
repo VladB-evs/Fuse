@@ -66,9 +66,6 @@ pub enum NodePayload {
     /// Parses a semantic version and increments it.
     #[serde(rename = "bump_version")]
     BumpVersion(BumpVersionData),
-    /// Uses on-device intelligence to summarize git diff into a commit message.
-    #[serde(rename = "ai_commit")]
-    AiCommit(AiCommitData),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -321,6 +318,8 @@ pub struct HttpData {
     pub variable: String,
     /// Treat 4xx and 5xx as a failed step.
     pub fail_on_error_status: bool,
+    #[serde(default)]
+    pub continue_on_error: bool,
     pub working_dir: Option<String>,
     pub frame_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -337,6 +336,7 @@ impl Default for HttpData {
             body: String::new(),
             variable: String::new(),
             fail_on_error_status: true,
+            continue_on_error: false,
             working_dir: None,
             frame_id: None,
             disabled: None,
@@ -389,6 +389,8 @@ pub struct ReadFileData {
     pub frame_id: Option<String>,
     pub path: String,
     pub variable: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
     pub working_dir: Option<String>,
     pub continue_on_error: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -402,6 +404,8 @@ pub struct WriteFileData {
     pub frame_id: Option<String>,
     pub path: String,
     pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub write_mode: Option<String>,
     pub working_dir: Option<String>,
     pub continue_on_error: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -439,6 +443,10 @@ pub struct BumpVersionData {
     pub variable_out: String,
     pub part: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suffix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub disabled: Option<bool>,
 }
 
@@ -450,39 +458,8 @@ impl Default for BumpVersionData {
             variable_in: String::new(),
             variable_out: String::new(),
             part: "patch".into(),
-            disabled: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "camelCase", default)]
-pub struct AiCommitData {
-    pub label: String,
-    pub frame_id: Option<String>,
-    pub prompt: Option<String>,
-    pub input_variable: Option<String>,
-    pub variable: String,
-    pub scope: String,
-    pub style: String,
-    pub working_dir: Option<String>,
-    pub continue_on_error: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub disabled: Option<bool>,
-}
-
-impl Default for AiCommitData {
-    fn default() -> Self {
-        Self {
-            label: "AI Summarizer".into(),
-            frame_id: None,
-            prompt: Some("Summarize the changes into a concise conventional git commit message".into()),
-            input_variable: None,
-            variable: "commit_message".into(),
-            scope: "staged".into(),
-            style: "conventional".into(),
-            working_dir: None,
-            continue_on_error: false,
+            prefix: None,
+            suffix: None,
             disabled: None,
         }
     }
@@ -505,6 +482,14 @@ impl WorkflowNode {
 
     pub fn is_frame(&self) -> bool {
         matches!(self.payload, NodePayload::Frame(_))
+    }
+
+    pub fn is_choice(&self) -> bool {
+        matches!(self.payload, NodePayload::Choice(_))
+    }
+
+    pub fn is_condition(&self) -> bool {
+        matches!(self.payload, NodePayload::Condition(_))
     }
 
     pub fn is_note(&self) -> bool {
@@ -530,7 +515,6 @@ impl WorkflowNode {
             NodePayload::WriteFile(w) => w.disabled == Some(true),
             NodePayload::SetVariable(s) => s.disabled == Some(true),
             NodePayload::BumpVersion(b) => b.disabled == Some(true),
-            NodePayload::AiCommit(a) => a.disabled == Some(true),
             NodePayload::Frame(_) => false,
         }
     }
@@ -558,7 +542,6 @@ impl WorkflowNode {
             NodePayload::WriteFile(w) => w.frame_id.as_deref(),
             NodePayload::SetVariable(s) => s.frame_id.as_deref(),
             NodePayload::BumpVersion(b) => b.frame_id.as_deref(),
-            NodePayload::AiCommit(a) => a.frame_id.as_deref(),
             NodePayload::Frame(_) => None,
         }
     }
@@ -574,7 +557,6 @@ impl WorkflowNode {
             NodePayload::Http(h) => h.working_dir.as_deref(),
             NodePayload::ReadFile(r) => r.working_dir.as_deref(),
             NodePayload::WriteFile(w) => w.working_dir.as_deref(),
-            NodePayload::AiCommit(a) => a.working_dir.as_deref(),
             _ => None,
         }
     }
@@ -588,7 +570,7 @@ impl WorkflowNode {
             NodePayload::Capture(c) => c.continue_on_error,
             NodePayload::ReadFile(r) => r.continue_on_error,
             NodePayload::WriteFile(w) => w.continue_on_error,
-            NodePayload::AiCommit(a) => a.continue_on_error,
+            NodePayload::Http(h) => h.continue_on_error,
             _ => false,
         }
     }
@@ -627,7 +609,6 @@ impl WorkflowNode {
             NodePayload::WriteFile(w) => named(&w.label, "Write File"),
             NodePayload::SetVariable(s) => named(&s.label, "Set Variable"),
             NodePayload::BumpVersion(b) => named(&b.label, "Bump Version"),
-            NodePayload::AiCommit(a) => named(&a.label, "AI Commit Summary"),
         }
     }
 
@@ -665,7 +646,6 @@ impl WorkflowNode {
             NodePayload::WriteFile(w) => format!("Write {}", w.path),
             NodePayload::SetVariable(s) => format!("Set {} = {}", s.variable, s.value),
             NodePayload::BumpVersion(b) => format!("Bump {} ({})", b.variable_in, b.part),
-            NodePayload::AiCommit(a) => format!("Summarize diff -> {}", a.variable),
             NodePayload::Frame(_) => String::new(),
         }
     }

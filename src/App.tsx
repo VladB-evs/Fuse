@@ -9,10 +9,12 @@ import { RunInputDialog } from "@/components/RunInputDialog";
 import { PromptDialog } from "@/components/PromptDialog";
 import { NodePicker } from "@/components/NodePicker";
 import { WorkflowSidebar } from "@/components/WorkflowSidebar";
-import { RepositoryActivityPanel } from "@/components/RepositoryActivityPanel";
 import { DocumentationDialog } from "@/components/DocumentationDialog";
 import { ImportJsonDialog } from "@/components/ImportJsonDialog";
 import { SettingsDialog } from "@/components/SettingsDialog";
+import { ScriptEditorDialog } from "@/components/ScriptEditorDialog";
+import { HttpBodyEditorDialog } from "@/components/HttpBodyEditorDialog";
+import { WaitUntilEditorDialog } from "@/components/WaitUntilEditorDialog";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { subscribeToEngine } from "@/bridge/events";
 import { homeDirectory, listWorkflows } from "@/bridge/commands";
@@ -43,7 +45,6 @@ function AppShell() {
   const name = useWorkflowStore((s) => s.name);
   const workingDir = useWorkflowStore((s) => s.workingDir);
   const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen);
-  const rightSidebarOpen = useUIStore((s) => s.rightSidebarOpen);
 
   // Engine events -> runtime store, plus output-panel follow behaviour.
   useEffect(() => {
@@ -149,9 +150,6 @@ function AppShell() {
       <div className="flex min-h-0 flex-1">
         {leftSidebarOpen && <WorkflowSidebar />}
         <Canvas />
-        {rightSidebarOpen && (
-          <RepositoryActivityPanel directory={workingDir} homeDir={homeDir} />
-        )}
       </div>
       <OutputPanel homeDir={homeDir} />
       <NodePicker />
@@ -162,6 +160,9 @@ function AppShell() {
       <DocumentationDialog />
       <ImportJsonDialog />
       <SettingsDialog />
+      <ScriptEditorDialog />
+      <HttpBodyEditorDialog />
+      <WaitUntilEditorDialog />
     </div>
   );
 }

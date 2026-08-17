@@ -47,6 +47,9 @@ const NON_INTERACTIVE_ENV: &[(&str, &str)] = &[
     ("CLICOLOR_FORCE", "1"),
     ("FORCE_COLOR", "1"),
     ("PY_COLORS", "1"),
+    // Unbuffered Python output so prints stream in real-time
+    ("PYTHONUNBUFFERED", "1"),
+    ("NODE_NO_WARNINGS", "1"),
     // Git decides on colour by asking whether stdout is a terminal, which a
     // pipe never is. These three are how you override config from outside.
     ("GIT_CONFIG_COUNT", "1"),
@@ -170,6 +173,50 @@ fn login_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string())
 }
 
+/// Ensure common tools (Homebrew, user local bins, pyenv, nvm, cargo) are reachable
+/// even when the GUI app inherits a restricted system PATH.
+pub fn enhanced_path() -> String {
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    let home = home_dir();
+    let home_str = home.display().to_string();
+
+    let preferred_paths = [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        &format!("{home_str}/.local/bin"),
+        &format!("{home_str}/.cargo/bin"),
+        &format!("{home_str}/.pyenv/shims"),
+        &format!("{home_str}/.nvm/current/bin"),
+        &format!("{home_str}/.rbenv/shims"),
+        &format!("{home_str}/.nodenv/shims"),
+        &format!("{home_str}/bin"),
+        "/usr/bin",
+        "/bin",
+        "/usr/sbin",
+        "/sbin",
+    ];
+
+    let mut parts: Vec<String> = Vec::new();
+
+    // 1. Add preferred paths first if they exist on disk
+    for p in preferred_paths {
+        if Path::new(p).is_dir() && !parts.iter().any(|existing| existing == p) {
+            parts.push(p.to_string());
+        }
+    }
+
+    // 2. Append any remaining current PATH elements
+    for current in current_path.split(':').filter(|s| !s.is_empty()) {
+        if !parts.iter().any(|existing| existing == current) {
+            parts.push(current.to_string());
+        }
+    }
+
+    parts.join(":")
+}
+
 use super::events::RunMode;
 
 fn is_destructive_network_cmd(cmd: &str) -> bool {
@@ -273,6 +320,9 @@ where
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+
+    // Ensure developer tools and version managers are in PATH
+    cmd.env("PATH", enhanced_path());
 
     // Tell the usual suspects there is nobody to ask. Without this, git waits
     // on a credential prompt it can never receive and pagers swallow output.

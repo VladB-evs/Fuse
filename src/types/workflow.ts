@@ -34,8 +34,7 @@ export type NodeKind =
   | "read_file"
   | "write_file"
   | "set_variable"
-  | "bump_version"
-  | "ai_commit";
+  | "bump_version";
 
 /** Every kind except a frame — the things that appear in a run. */
 export type BlockKind = Exclude<NodeKind, "frame">;
@@ -128,6 +127,7 @@ export type HttpData = BlockCommon & {
   body: string;
   variable: string;
   failOnErrorStatus: boolean;
+  continueOnError?: boolean;
   workingDir: string | null;
 };
 
@@ -144,6 +144,7 @@ export type NoteData = BlockCommon & {
 export type ReadFileData = BlockCommon & {
   path: string;
   variable: string;
+  fallback?: string;
   workingDir: string | null;
   continueOnError: boolean;
 };
@@ -152,6 +153,7 @@ export type ReadFileData = BlockCommon & {
 export type WriteFileData = BlockCommon & {
   path: string;
   content: string;
+  writeMode?: "overwrite" | "append" | "ask" | "auto_rename";
   workingDir: string | null;
   continueOnError: boolean;
 };
@@ -166,17 +168,8 @@ export type BumpVersionData = BlockCommon & {
   variableIn: string;
   variableOut: string;
   part: string;
-};
-
-/** Uses AI / intelligence to summarize diffs, variables, or custom text prompts into structured output variables. */
-export type AiCommitData = BlockCommon & {
-  prompt?: string;
-  inputVariable?: string;
-  variable: string;
-  scope: "staged" | "all" | "variable";
-  style: "conventional" | "concise" | "detailed" | "custom";
-  workingDir: string | null;
-  continueOnError: boolean;
+  prefix?: string;
+  suffix?: string;
 };
 
 export type BlockData =
@@ -193,8 +186,7 @@ export type BlockData =
   | ReadFileData
   | WriteFileData
   | SetVariableData
-  | BumpVersionData
-  | AiCommitData;
+  | BumpVersionData;
 
 export type FrameColor = "default" | "blue" | "green" | "purple" | "amber" | "rose" | "cyan";
 
@@ -226,8 +218,7 @@ export type PersistedNode =
   | { id: string; position: XY; type: "read_file"; data: ReadFileData }
   | { id: string; position: XY; type: "write_file"; data: WriteFileData }
   | { id: string; position: XY; type: "set_variable"; data: SetVariableData }
-  | { id: string; position: XY; type: "bump_version"; data: BumpVersionData }
-  | { id: string; position: XY; type: "ai_commit"; data: AiCommitData };
+  | { id: string; position: XY; type: "bump_version"; data: BumpVersionData };
 
 export type PersistedEdge = {
   id: string;
@@ -255,31 +246,6 @@ export type WorkflowSummary = {
   updatedAt: number;
 };
 
-export type RepositoryActivity = {
-  isRepository: boolean;
-  isGithub: boolean;
-  remote: string | null;
-  branch: string | null;
-  commits: number;
-  days: { date: string; count: number }[];
-  history: RepositoryCommit[];
-};
-
-export type RepositoryCommit = {
-  hash: string;
-  shortHash: string;
-  author: string;
-  email: string;
-  authoredAt: string;
-  relativeTime: string;
-  subject: string;
-  filesChanged: number;
-  insertions: number;
-  deletions: number;
-  parents: string[];
-  refs: string[];
-};
-
 // --- Canvas types ---------------------------------------------------------
 
 export type CommandNodeType = RFNode<CommandData, "command">;
@@ -297,7 +263,6 @@ export type ReadFileNodeType = RFNode<ReadFileData, "read_file">;
 export type WriteFileNodeType = RFNode<WriteFileData, "write_file">;
 export type SetVariableNodeType = RFNode<SetVariableData, "set_variable">;
 export type BumpVersionNodeType = RFNode<BumpVersionData, "bump_version">;
-export type AiCommitNodeType = RFNode<AiCommitData, "ai_commit">;
 
 /** Anything that takes part in a run. */
 export type BlockNodeType =
@@ -314,8 +279,7 @@ export type BlockNodeType =
   | ReadFileNodeType
   | WriteFileNodeType
   | SetVariableNodeType
-  | BumpVersionNodeType
-  | AiCommitNodeType;
+  | BumpVersionNodeType;
 
 export type FuseNode = BlockNodeType | FrameNodeType;
 export type FuseEdge = RFEdge;

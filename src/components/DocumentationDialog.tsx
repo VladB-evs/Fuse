@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { BookOpen, Copy, X } from "lucide-react";
 import { useUIStore } from "@/store/uiStore";
-import { CATALOG, ACCENT_TINT, ACCENT_TEXT } from "@/lib/catalog";
+import { CATALOG, ACCENT_TINT, ACCENT_TEXT, CATEGORY_THEME, type NodeGroup } from "@/lib/catalog";
 import { Button } from "./ui/Button";
 import { cn } from "@/lib/utils";
 
@@ -102,9 +102,17 @@ Use this schema when outputting 'Fuse Export' files for the user to import into 
             }, {} as Record<string, typeof CATALOG>)
           ).map(([group, entries]) => (
             <div key={group}>
-              <h3 className="sticky top-0 z-10 bg-base/95 px-5 py-2 text-[11px] font-bold tracking-wider text-fg-subtle uppercase backdrop-blur-sm shadow-[0_1px_0_0_var(--color-line)]">
-                {group}
-              </h3>
+              <div className="sticky top-0 z-10 flex items-center gap-2 bg-base/95 px-5 py-2.5 backdrop-blur-sm shadow-[0_1px_0_0_var(--color-line)]">
+                <span
+                  className={cn(
+                    "px-2 py-0.5 rounded-[4px] font-mono text-[10px] font-bold tracking-wider uppercase",
+                    CATEGORY_THEME[group as NodeGroup]?.badge,
+                  )}
+                >
+                  {group}
+                </span>
+                <span className="h-px flex-1 bg-line/60" />
+              </div>
               <div className="space-y-8 px-5 py-6">
                 {entries.map((entry) => (
                   <div key={entry.kind} className="space-y-3 pb-8 border-b border-line-subtle last:border-0 text-left">

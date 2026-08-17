@@ -19,7 +19,6 @@ import type {
   RunStatus,
   SandboxFileDiff,
 } from "@/types/workflow";
-import { useWorkflowStore } from "./workflowStore";
 
 /** Per-node ring buffer cap. Keeps memory bounded on chatty commands. */
 const OUTPUT_LIMIT = 5000;
@@ -166,14 +165,6 @@ export const useRuntimeStore = create<RuntimeState>()((set) => ({
               durationMs: event.durationMs,
               finishedAt: event.at,
             };
-
-            if (event.outputValue && event.status === "success") {
-              const workflowStore = useWorkflowStore.getState();
-              const node = workflowStore.nodes.find(n => n.id === event.nodeId);
-              if (node && node.type === "bump_version") {
-                workflowStore.updateNodeData(event.nodeId, { variableIn: event.outputValue });
-              }
-            }
 
             break;
           }

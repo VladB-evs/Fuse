@@ -72,9 +72,16 @@ function FlowEdgeImpl({
     return "idle";
   })();
 
-  // A wire out of a condition's "no" port is worth calling out: which port it
-  // left from is the whole difference between the two branches.
-  const negative = sourceHandleId === FALSE_PORT;
+  // A wire out of a condition block: color and label the branch clearly
+  const isConditionSource = sourceNode.type === "condition";
+  const negative = isConditionSource && sourceHandleId === FALSE_PORT;
+  const positive = isConditionSource && sourceHandleId !== FALSE_PORT;
+
+  const branchLabel = isConditionSource
+    ? negative
+      ? ((sourceNode.data as any)?.falseLabel || "No")
+      : ((sourceNode.data as any)?.trueLabel || "Yes")
+    : null;
 
   return (
     <>
@@ -86,18 +93,44 @@ function FlowEdgeImpl({
           `fuse-edge--${state}`,
           selected && "is-selected",
           negative && "fuse-edge--no",
+          positive && "fuse-edge--yes",
           disabled && "fuse-edge--disabled",
           isDropTarget && "fuse-edge--splice is-selected",
         )}
       >
         <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} />
 
-        {/* Travelling highlight. `pathLength={1}` normalises the dash units so a
-            single set of dash values works for wires of any length. */}
+        {/* Pulse on top of the wire so it's visible. The arrowhead marker
+            is part of BaseEdge's own paint pass and always renders last. */}
         {!disabled && <path className="fuse-edge-pulse" d={path} pathLength={1} />}
 
-        <circle className="fuse-edge-cap" cx={from.x} cy={from.y} r={3.8} />
+        <circle className="fuse-edge-cap" cx={from.x} cy={from.y} r={4.2} />
       </g>
+
+      {/* Condition branch badge (Yes / No) */}
+      {isConditionSource && !disabled && !isDropTarget && (
+        <EdgeLabelRenderer>
+          <div
+            data-edge-id={id}
+            className="nodrag nopan pointer-events-none absolute z-30 select-none transition-opacity"
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              opacity: hovered || selected ? 0 : 1,
+            }}
+          >
+            <span
+              className={cn(
+                "inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[9px] font-mono font-bold tracking-wide shadow-sm border",
+                negative
+                  ? "border-amber-500/40 bg-base/95 text-amber-400"
+                  : "border-emerald-500/40 bg-base/95 text-emerald-400",
+              )}
+            >
+              {branchLabel}
+            </span>
+          </div>
+        </EdgeLabelRenderer>
+      )}
 
       {/* Splicing insert preview badge */}
       {isDropTarget && (

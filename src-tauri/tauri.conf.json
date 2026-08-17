@@ -22,6 +22,7 @@
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "theme": "Dark",
+        "backgroundColor": [8, 8, 10, 255],
         "acceptFirstMouse": true
       }
     ],

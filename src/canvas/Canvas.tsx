@@ -7,6 +7,7 @@ import {
   MiniMap,
   Panel,
   ReactFlow,
+  SelectionMode,
   useConnection,
   useReactFlow,
   useStoreApi,
@@ -336,8 +337,8 @@ export function Canvas() {
           type: "flow",
           markerEnd: {
             type: MarkerType.ArrowClosed,
-            width: 18,
-            height: 18,
+            width: 22,
+            height: 22,
             color: "currentColor",
           }
         }}
@@ -360,6 +361,8 @@ export function Canvas() {
         deleteKeyCode={null}
         multiSelectionKeyCode="Meta"
         selectionKeyCode="Shift"
+        selectionMode={SelectionMode.Full}
+        selectionOnDrag={false}
         panOnDrag={ctrlHeld ? false : true}
         nodesDraggable={!ctrlHeld}
         elementsSelectable={!ctrlHeld}

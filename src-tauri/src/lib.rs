@@ -26,8 +26,11 @@ pub fn run() {
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let settings = commands::load_settings(&data_dir);
-            let store_dir = settings.custom_workflow_dir.map(std::path::PathBuf::from).unwrap_or_else(|| data_dir.clone());
-            let store = JsonStore::new(&store_dir)?;
+            let store = if let Some(custom) = settings.custom_workflow_dir {
+                JsonStore::new_direct(std::path::PathBuf::from(custom))?
+            } else {
+                JsonStore::new(&data_dir)?
+            };
             app.manage(AppState::new(Arc::new(store), data_dir));
             Ok(())
         })
@@ -46,7 +49,6 @@ pub fn run() {
             commands::is_running,
             commands::home_directory,
             commands::pick_directory,
-            commands::repository_activity,
             commands::apply_sandbox_changes,
             commands::discard_sandbox,
         ])

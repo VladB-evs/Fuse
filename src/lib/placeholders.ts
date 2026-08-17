@@ -41,10 +41,40 @@ function singleQuoted(value: string): string {
   return `'${value.split("'").join(`'\\''`)}'`;
 }
 
+function getQuoteContext(text: string, offset: number): "single" | "double" | "bare" {
+  let inSingle = false;
+  let inDouble = false;
+  let escaped = false;
+
+  for (let i = 0; i < offset; i++) {
+    const c = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (c === "\\" && !inSingle) {
+      escaped = true;
+      continue;
+    }
+    if (c === "'" && !inDouble) {
+      inSingle = !inSingle;
+      continue;
+    }
+    if (c === '"' && !inSingle) {
+      inDouble = !inDouble;
+      continue;
+    }
+  }
+
+  if (inSingle) return "single";
+  if (inDouble) return "double";
+  return "bare";
+}
+
 /**
  * Substitute values into a command.
  *
- * The character on either side of the placeholder decides the escaping, so
+ * The quotation context across the command decides the escaping, so
  * the result is safe whether or not the author added their own quotes.
  */
 export function fillPlaceholders(text: string, values: Record<string, string>): string {
@@ -52,15 +82,14 @@ export function fillPlaceholders(text: string, values: Record<string, string>): 
     const value = values[name];
     if (value === undefined) return token;
 
-    const before = text[offset - 1];
-    const after = text[offset + token.length];
+    const ctx = getQuoteContext(text, offset);
 
     // Already inside double quotes: neutralise what the shell would expand.
-    if (before === '"' && after === '"') {
+    if (ctx === "double") {
       return value.replace(/(["\\$`])/g, "\\$1");
     }
     // Already inside single quotes: only an apostrophe can escape.
-    if (before === "'" && after === "'") {
+    if (ctx === "single") {
       return value.split("'").join(`'\\''`);
     }
     // Bare: quote it ourselves so spaces stay one argument.

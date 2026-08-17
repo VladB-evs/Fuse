@@ -73,6 +73,7 @@ impl SandboxContext {
     }
 
     /// Remaps any path inside the original directory to its corresponding sandbox path.
+    /// If the path is outside the original directory, returns None so the external path is preserved.
     pub fn remap_dir(&self, step_dir: Option<&Path>) -> Option<PathBuf> {
         let dir = step_dir?;
         let canonical = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
@@ -82,8 +83,8 @@ impl SandboxContext {
         } else if canonical == self.original_dir {
             Some(self.sandbox_dir.clone())
         } else {
-            // If the directory was outside the original workspace, map to sandbox root
-            Some(self.sandbox_dir.clone())
+            // External path outside workspace: do not redirect to sandbox root
+            None
         }
     }
 
@@ -138,6 +139,7 @@ impl SandboxContext {
             // Compare files between sandbox and original
             let mut diffs = Vec::new();
             collect_dir_diffs(&self.original_dir, &self.sandbox_dir, &self.sandbox_dir, &mut diffs);
+            collect_deleted_diffs(&self.original_dir, &self.sandbox_dir, &self.original_dir, &mut diffs);
             Ok(diffs)
         }
     }
@@ -271,6 +273,11 @@ fn collect_dir_diffs(
     if let Ok(entries) = fs::read_dir(current_dir) {
         for entry in entries.flatten() {
             let path = entry.path();
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy();
+            if name == ".git" || name == "node_modules" || name == "target" || name == "dist" || name == ".DS_Store" {
+                continue;
+            }
             if path.is_dir() {
                 collect_dir_diffs(original_root, sandbox_root, &path, diffs);
             } else if path.is_file() {
@@ -285,13 +292,57 @@ fn collect_dir_diffs(
                             diff: None,
                         });
                     } else if let (Ok(s_meta), Ok(o_meta)) = (fs::metadata(&path), fs::metadata(&orig)) {
-                        if s_meta.len() != o_meta.len() {
+                        let is_modified = if s_meta.len() != o_meta.len() {
+                            true
+                        } else if let (Ok(s_time), Ok(o_time)) = (s_meta.modified(), o_meta.modified()) {
+                            if s_time != o_time {
+                                fs::read(&path).ok() != fs::read(&orig).ok()
+                            } else {
+                                false
+                            }
+                        } else {
+                            fs::read(&path).ok() != fs::read(&orig).ok()
+                        };
+
+                        if is_modified {
                             diffs.push(SandboxFileDiff {
                                 path: rel_str,
                                 status: "modified".into(),
                                 diff: None,
                             });
                         }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn collect_deleted_diffs(
+    original_root: &Path,
+    sandbox_root: &Path,
+    current_dir: &Path,
+    diffs: &mut Vec<SandboxFileDiff>,
+) {
+    if let Ok(entries) = fs::read_dir(current_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy();
+            if name == ".git" || name == "node_modules" || name == "target" || name == "dist" || name == ".DS_Store" {
+                continue;
+            }
+            if path.is_dir() {
+                collect_deleted_diffs(original_root, sandbox_root, &path, diffs);
+            } else if path.is_file() {
+                if let Ok(rel) = path.strip_prefix(original_root) {
+                    let sb_file = sandbox_root.join(rel);
+                    if !sb_file.exists() {
+                        diffs.push(SandboxFileDiff {
+                            path: rel.to_string_lossy().to_string(),
+                            status: "deleted".into(),
+                            diff: None,
+                        });
                     }
                 }
             }

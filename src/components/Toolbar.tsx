@@ -9,8 +9,6 @@ import {
   FolderOpen,
   PanelLeft,
   PanelLeftClose,
-  PanelRight,
-  PanelRightClose,
   Play,
   Plus,
   Settings,
@@ -77,9 +75,7 @@ export function Toolbar() {
   const setImportJsonOpen = useUIStore((s) => s.setImportJsonOpen);
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
   const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen);
-  const rightSidebarOpen = useUIStore((s) => s.rightSidebarOpen);
   const toggleLeftSidebar = useUIStore((s) => s.toggleLeftSidebar);
-  const toggleRightSidebar = useUIStore((s) => s.toggleRightSidebar);
   const setOutputOpen = useUIStore((s) => s.setOutputOpen);
 
   const elapsed = useElapsed(startedAt, running);
@@ -383,17 +379,6 @@ export function Toolbar() {
         className="flex items-center justify-center rounded-[6px] p-1.5 text-fg-subtle transition hover:bg-hover hover:text-fg"
       >
         <Settings size={15} />
-      </button>
-
-      <div className="ml-1 h-3 w-px bg-line" />
-
-      <button
-        type="button"
-        onClick={() => toggleRightSidebar()}
-        title="Toggle activity panel"
-        className="flex items-center justify-center rounded-[6px] p-1.5 text-fg-subtle transition hover:bg-hover hover:text-fg"
-      >
-        {rightSidebarOpen ? <PanelRightClose size={15} /> : <PanelRight size={15} />}
       </button>
     </header>
   );

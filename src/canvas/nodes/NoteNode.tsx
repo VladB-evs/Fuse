@@ -67,9 +67,9 @@ function NoteNodeImpl({ id, data, selected }: NodeProps<NoteNodeType>) {
     return outputs.join("\n\n");
   }, [upstreamNodes, outputMap]);
 
-  const isCapturing = data.capture !== false && (data.capture === true || incomingEdges.length > 0);
+  const isCapturing = Boolean(data.capture);
 
-  // Auto-sync upstream outputs into note text when Capture is active
+  // Auto-sync upstream outputs into note text when Capture is explicitly active
   const lastSyncRef = useRef<string>("");
   useEffect(() => {
     if (isCapturing && combinedUpstreamText && combinedUpstreamText !== lastSyncRef.current) {
@@ -126,7 +126,6 @@ function NoteNodeImpl({ id, data, selected }: NodeProps<NoteNodeType>) {
       workingDir={null}
       onRename={(label) => updateNodeData(id, { label })}
       style={{ width: cardWidth, height: cardHeight }}
-      className="w-full h-full"
       resizeControl={
         <>
           <NodeResizeControl

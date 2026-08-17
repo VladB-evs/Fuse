@@ -158,7 +158,6 @@ const BLOCK_HINT: Partial<Record<NodeKind, string>> = {
   wait: "Give it a command to poll, or just a delay",
   http: "Values from earlier steps work in the URL, headers and body",
   script: "Pick an interpreter and write the script",
-  ai_commit: "Summarizes changes into a clean commit message before git add .",
 };
 
 /**
@@ -398,9 +397,19 @@ function isVariableProvidedUpstream(
       n.type === "capture" ||
       n.type === "read_file" ||
       n.type === "set_variable" ||
-      n.type === "ai_commit"
+      n.type === "http"
     ) {
-      return (n.data as { variable: string }).variable.trim() === varName;
+      return (n.data as { variable: string }).variable?.trim() === varName;
+    }
+    if (n.type === "note") {
+      const explicit = (n.data as { variable?: string }).variable?.trim();
+      if (explicit) return explicit === varName;
+      const clean = ((n.data as { label?: string }).label || "note")
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, "_")
+        .replace(/^_+|_+$/g, "");
+      const autoName = clean && clean !== "note" ? `note_${clean}` : "note";
+      return autoName === varName;
     }
     if (n.type === "bump_version") {
       return (n.data as { variableOut: string }).variableOut.trim() === varName;
@@ -872,6 +881,8 @@ export async function importBlocks(): Promise<void> {
       id: uuidv4(),
       source: idMap.get(e.source) || e.source,
       target: idMap.get(e.target) || e.target,
+      data: { ...(e.data || {}), disabled: !!(e.data?.disabled ?? e.disabled) },
+      disabled: !!(e.data?.disabled ?? e.disabled),
     }));
 
     useWorkflowStore.setState((state) => ({
@@ -960,13 +971,26 @@ export async function importJsonString(
       const currentNodes = useWorkflowStore.getState().nodes;
       const currentEdges = useWorkflowStore.getState().edges;
 
-      const newNodes = prepared.nodes.map((n) => ({
-        id: n.id,
-        type: n.type,
-        position: n.position,
-        zIndex: n.type === "frame" ? 0 : 1,
-        data: n.data,
-      })) as import("@/types/workflow").FuseNode[];
+      const newNodes = prepared.nodes.map((n) => {
+        if (n.type === "frame") {
+          return {
+            id: n.id,
+            type: "frame" as const,
+            position: n.position,
+            width: (n.data as any)?.width ?? 480,
+            height: (n.data as any)?.height ?? 360,
+            zIndex: 0,
+            data: n.data,
+          };
+        }
+        return {
+          id: n.id,
+          type: n.type,
+          position: n.position,
+          zIndex: 1,
+          data: n.data,
+        };
+      }) as import("@/types/workflow").FuseNode[];
 
       const newEdges = prepared.edges.map((e) => ({
         id: e.id,
@@ -976,6 +1000,7 @@ export async function importJsonString(
         targetHandle: e.targetHandle ?? TARGET_PORT,
         type: "flow" as const,
         data: { disabled: !!e.disabled },
+        disabled: !!e.disabled,
       })) as import("@/types/workflow").FuseEdge[];
 
       useWorkflowStore.setState({

@@ -10,8 +10,9 @@
 
 use super::events::{EngineEvent, EventSink, NodeStatus, OutputStream, RunMode};
 use super::process::{self, CommandSpec, RunControl};
-use crate::model::{AiCommitData, CaptureData, ConditionData, HttpData, ScriptData, WaitData, ReadFileData, WriteFileData, SetVariableData, NoteData, now_ms};
-use std::path::PathBuf;
+use super::prompt::{PromptKind, PromptReply, PromptRequest, Prompter};
+use crate::model::{CaptureData, ConditionData, HttpData, ScriptData, WaitData, ReadFileData, WriteFileData, SetVariableData, NoteData, now_ms};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// What a step leaves behind for the scheduler.
@@ -684,6 +685,20 @@ pub(crate) async fn run_read_file(
             }
         }
         Err(err) => {
+            if let Some(ref fallback) = data.fallback {
+                if !fallback.is_empty() {
+                    reporter.out(format!(
+                        "⚠️ File not found ({}), using fallback value ({} bytes)",
+                        absolute.display(),
+                        fallback.len()
+                    ));
+                    return StepOutcome {
+                        status: reporter.finished(NodeStatus::Success, Some(0)),
+                        value: Some((data.variable.trim().to_string(), fallback.clone())),
+                        branch: None,
+                    };
+                }
+            }
             reporter.err(format!("Could not read file {}: {}", absolute.display(), err));
             if data.continue_on_error {
                 StepOutcome::plain(reporter.finished(NodeStatus::Success, None))
@@ -702,6 +717,11 @@ pub(crate) async fn run_write_file(
     sandbox_ctx: Option<&super::SandboxContext>,
     reporter: &Reporter<'_>,
     run_mode: RunMode,
+    run_id: &str,
+    node_id: &str,
+    sink: &dyn EventSink,
+    control: &RunControl,
+    prompter: &dyn Prompter,
 ) -> StepOutcome {
     reporter.started(&working_dir);
 
@@ -710,10 +730,11 @@ pub(crate) async fn run_write_file(
         return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
     }
 
-    let mut absolute = if std::path::Path::new(&path).is_absolute() {
-        PathBuf::from(path)
+    let mut current_path = path;
+    let mut absolute = if std::path::Path::new(&current_path).is_absolute() {
+        PathBuf::from(&current_path)
     } else {
-        working_dir.join(path)
+        working_dir.join(&current_path)
     };
     if let Some(sb) = sandbox_ctx {
         if let Some(remapped) = sb.remap_dir(Some(&absolute)) {
@@ -721,14 +742,100 @@ pub(crate) async fn run_write_file(
         }
     }
 
+    let mode = data.write_mode.as_deref().unwrap_or("overwrite");
+    let mut file_exists = absolute.exists();
+
     if run_mode == RunMode::DryRun {
         reporter.out(format!(
-            "📋 [DRY RUN] Would write {} bytes to: {}",
+            "📋 [DRY RUN] Would write {} bytes to {} (mode: {})",
             content.len(),
-            absolute.display()
+            absolute.display(),
+            mode
         ));
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         return StepOutcome::plain(reporter.finished(NodeStatus::Success, Some(0)));
+    }
+
+    // Handle "ask" / "ask_new_name" mode when file exists
+    if file_exists && (mode == "ask" || mode == "ask_new_name") {
+        reporter.out(format!(
+            "⚠️ File '{}' already exists on disk. Asking for a new file name…",
+            current_path
+        ));
+
+        let req = PromptRequest {
+            run_id: run_id.to_string(),
+            node_id: node_id.to_string(),
+            title: format!("File Already Exists: {}", current_path),
+            message: format!(
+                "The target file '{}' already exists. Enter a new name or path to write to (or leave unchanged to overwrite):",
+                current_path
+            ),
+            sources: vec![],
+            kind: PromptKind::Input {
+                variable: "NEW_FILE_NAME".to_string(),
+                default_value: format!("{}.new", current_path),
+                secret: false,
+            },
+        };
+
+        let reply = super::ask(req, sink, control, prompter).await;
+        match reply {
+            PromptReply::Value { value } => {
+                let trimmed = value.trim().to_string();
+                if !trimmed.is_empty() {
+                    current_path = trimmed;
+                    absolute = if std::path::Path::new(&current_path).is_absolute() {
+                        PathBuf::from(&current_path)
+                    } else {
+                        working_dir.join(&current_path)
+                    };
+                    if let Some(sb) = sandbox_ctx {
+                        if let Some(remapped) = sb.remap_dir(Some(&absolute)) {
+                            absolute = remapped;
+                        }
+                    }
+                    file_exists = absolute.exists();
+                }
+            }
+            PromptReply::Approve => {
+                // User approved keeping the current path (overwrite)
+            }
+            PromptReply::Deny | PromptReply::Cancelled => {
+                reporter.err("Write operation stopped by user.");
+                return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
+            }
+            _ => {}
+        }
+    } else if file_exists && mode == "auto_rename" {
+        // Auto-increment name: file_1.ext, file_2.ext
+        let p = Path::new(&current_path);
+        let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
+        let ext = p.extension().and_then(|s| s.to_str()).map(|e| format!(".{}", e)).unwrap_or_default();
+        let parent = p.parent().unwrap_or_else(|| Path::new(""));
+
+        let mut counter = 1;
+        loop {
+            let candidate_name = format!("{}_{}{}", stem, counter, ext);
+            let candidate_path = if parent.as_os_str().is_empty() {
+                PathBuf::from(candidate_name)
+            } else {
+                parent.join(candidate_name)
+            };
+            let candidate_abs = if candidate_path.is_absolute() {
+                candidate_path.clone()
+            } else {
+                working_dir.join(&candidate_path)
+            };
+            if !candidate_abs.exists() {
+                current_path = candidate_path.to_string_lossy().to_string();
+                absolute = candidate_abs;
+                file_exists = false;
+                reporter.out(format!("File already exists: automatically renamed target to '{}'", current_path));
+                break;
+            }
+            counter += 1;
+        }
     }
 
     if let Some(parent) = absolute.parent() {
@@ -739,9 +846,32 @@ pub(crate) async fn run_write_file(
         }
     }
 
-    match std::fs::write(&absolute, content.as_bytes()) {
+    let write_res = if mode == "append" {
+        use std::io::Write;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&absolute)
+            .and_then(|mut f| f.write_all(content.as_bytes()))
+    } else {
+        std::fs::write(&absolute, content.as_bytes())
+    };
+
+    match write_res {
         Ok(_) => {
-            reporter.out(format!("Wrote {} bytes to {}", content.len(), absolute.display()));
+            let action = if mode == "append" {
+                "Appended to"
+            } else if file_exists {
+                "Overwrote"
+            } else {
+                "Wrote"
+            };
+            reporter.out(format!(
+                "{} {} ({} bytes written)",
+                action,
+                absolute.display(),
+                content.len()
+            ));
             StepOutcome::plain(reporter.finished(NodeStatus::Success, Some(0)))
         }
         Err(err) => {
@@ -777,9 +907,131 @@ pub(crate) async fn run_set_variable(
     }
 }
 
+pub(crate) fn bump_version_string(
+    raw_input: &str,
+    part: &str,
+    explicit_prefix: Option<&str>,
+    explicit_suffix: Option<&str>,
+) -> Result<String, String> {
+    let mut trimmed = raw_input.trim();
+    if trimmed.is_empty() {
+        return Err("Input version is empty".into());
+    }
+
+    // Detect existing 'v' or 'V' prefix in input if no explicit prefix is specified
+    let mut auto_prefix = "";
+    if trimmed.starts_with('v') {
+        auto_prefix = "v";
+        trimmed = &trimmed[1..];
+    } else if trimmed.starts_with('V') {
+        auto_prefix = "V";
+        trimmed = &trimmed[1..];
+    }
+
+    // Split off existing prerelease or build metadata if present (e.g. -beta.1 or +20240101)
+    let (core_version, _existing_suffix) = if let Some(idx) = trimmed.find(|c| c == '-' || c == '+') {
+        (&trimmed[..idx], &trimmed[idx..])
+    } else {
+        (trimmed, "")
+    };
+
+    // Split numeric dot parts
+    let parts: Vec<&str> = core_version.split('.').collect();
+    let num_parts = parts.len();
+
+    let mut numbers: Vec<u64> = parts
+        .iter()
+        .map(|s| s.parse::<u64>().map_err(|_| format!("Invalid version component: '{}'", s)))
+        .collect::<Result<Vec<u64>, String>>()?;
+
+    if numbers.is_empty() {
+        return Err(format!("Could not parse numeric version from '{}'", raw_input));
+    }
+
+    match num_parts {
+        1 => {
+            // Single integer build/counter e.g. "42" -> "43"
+            numbers[0] += 1;
+        }
+        2 => {
+            // 2-part version e.g. "0.1"
+            match part {
+                "major" => {
+                    numbers[0] += 1;
+                    numbers[1] = 0;
+                }
+                "minor" | "patch" => {
+                    // Both minor and patch bump the secondary number in 2-part versions (0.1 -> 0.2)
+                    numbers[1] += 1;
+                }
+                _ => return Err(format!("Unknown bump type: '{}'", part)),
+            }
+        }
+        3 => {
+            // 3-part semver e.g. "1.2.3"
+            match part {
+                "major" => {
+                    numbers[0] += 1;
+                    numbers[1] = 0;
+                    numbers[2] = 0;
+                }
+                "minor" => {
+                    numbers[1] += 1;
+                    numbers[2] = 0;
+                }
+                "patch" => {
+                    numbers[2] += 1;
+                }
+                _ => return Err(format!("Unknown bump type: '{}'", part)),
+            }
+        }
+        _ => {
+            // 4+ part version e.g. "1.2.3.4"
+            match part {
+                "major" => {
+                    numbers[0] += 1;
+                    for n in numbers.iter_mut().skip(1) {
+                        *n = 0;
+                    }
+                }
+                "minor" => {
+                    numbers[1] += 1;
+                    for n in numbers.iter_mut().skip(2) {
+                        *n = 0;
+                    }
+                }
+                "patch" => {
+                    if numbers.len() >= 3 {
+                        numbers[2] += 1;
+                        for n in numbers.iter_mut().skip(3) {
+                            *n = 0;
+                        }
+                    } else if let Some(last) = numbers.last_mut() {
+                        *last += 1;
+                    }
+                }
+                _ => return Err(format!("Unknown bump type: '{}'", part)),
+            }
+        }
+    }
+
+    let bumped_core = numbers
+        .iter()
+        .map(|n| n.to_string())
+        .collect::<Vec<_>>()
+        .join(".");
+
+    let prefix = explicit_prefix.unwrap_or(auto_prefix);
+    let suffix = explicit_suffix.unwrap_or("");
+
+    Ok(format!("{}{}{}", prefix, bumped_core, suffix))
+}
+
 pub(crate) async fn run_bump_version(
     data: &crate::model::BumpVersionData,
     value_in: String,
+    prefix: Option<String>,
+    suffix: Option<String>,
     working_dir: PathBuf,
     reporter: &Reporter<'_>,
 ) -> StepOutcome {
@@ -796,520 +1048,25 @@ pub(crate) async fn run_bump_version(
         return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
     }
 
-    // Attempt to parse semantic version. We optionally strip a leading "v".
-    let version_str = if input.starts_with('v') || input.starts_with('V') {
-        &input[1..]
-    } else {
-        input
-    };
-
-    let mut version = match semver::Version::parse(version_str) {
-        Ok(v) => v,
+    let output = match bump_version_string(
+        input,
+        &data.part,
+        prefix.as_deref().or(data.prefix.as_deref()),
+        suffix.as_deref().or(data.suffix.as_deref()),
+    ) {
+        Ok(out) => out,
         Err(err) => {
-            reporter.err(format!("Could not parse as semantic version (e.g. 1.2.3): {}", err));
+            reporter.err(format!("Could not bump version '{}': {}", input, err));
             return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
         }
     };
 
-    match data.part.as_str() {
-        "major" => {
-            version.major += 1;
-            version.minor = 0;
-            version.patch = 0;
-            version.pre = semver::Prerelease::EMPTY;
-        }
-        "minor" => {
-            version.minor += 1;
-            version.patch = 0;
-            version.pre = semver::Prerelease::EMPTY;
-        }
-        "patch" => {
-            version.patch += 1;
-            version.pre = semver::Prerelease::EMPTY;
-        }
-        _ => {
-            reporter.err(format!("Unknown bump type: {}", data.part));
-            return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
-        }
-    }
+    reporter.out(format!("Bumped {} ({}) to {}", input, data.part, output));
 
-    // Preserve 'v' prefix if it was there
-    let output = if input.starts_with('v') {
-        format!("v{}", version)
-    } else if input.starts_with('V') {
-        format!("V{}", version)
-    } else {
-        version.to_string()
-    };
-
-    reporter.out(format!("Bumped {} to {}", input, output));
-    
     StepOutcome {
         status: reporter.finished_with_value(NodeStatus::Success, Some(0), output.clone()),
         value: Some((data.variable_out.trim().to_string(), output)),
         branch: None,
-    }
-}
-
-pub(crate) async fn run_ai_commit(
-    data: &AiCommitData,
-    resolved_prompt: Option<String>,
-    resolved_input: Option<String>,
-    control: &RunControl,
-    working_dir: PathBuf,
-    reporter: &Reporter<'_>,
-    run_mode: RunMode,
-) -> StepOutcome {
-    reporter.started(&working_dir);
-
-    if data.variable.trim().is_empty() {
-        reporter.err("No output variable name provided.");
-        return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
-    }
-
-    let prompt = resolved_prompt
-        .filter(|p| !p.trim().is_empty())
-        .or_else(|| data.prompt.clone())
-        .unwrap_or_else(|| "Summarize the changes into a concise conventional git commit message".to_string());
-
-    if run_mode == RunMode::DryRun {
-        reporter.out(format!("📋 [DRY RUN] Would process input and generate summary with prompt: \"{}\"", prompt));
-        let simulated = if data.style == "concise" {
-            "Simulated concise summary from dry run".to_string()
-        } else {
-            "feat(core): simulated commit message from dry run".to_string()
-        };
-        reporter.out(format!("✨ [DRY RUN] Generated result: \"{}\"", simulated));
-        if !sleep_unless_stopped(0.35, control).await {
-            return StepOutcome::plain(reporter.finished(NodeStatus::Cancelled, None));
-        }
-        return StepOutcome {
-            status: reporter.finished_with_value(NodeStatus::Success, Some(0), simulated.clone()),
-            value: Some((data.variable.trim().to_string(), simulated)),
-            branch: None,
-        };
-    }
-
-    // Determine input source:
-    // 1. Direct input text passed from an incoming variable/wire (e.g. from git diff or capture node)
-    // 2. Fall back to inspecting git diff/status in the working directory
-    let (input_content, is_live_repo) = if let Some(ref custom_in) = resolved_input {
-        if !custom_in.trim().is_empty() {
-            (custom_in.trim().to_string(), false)
-        } else {
-            (String::new(), true)
-        }
-    } else {
-        (String::new(), true)
-    };
-
-    let final_summary = if !is_live_repo && !input_content.is_empty() {
-        if let Some(ai_result) = call_apple_intelligence(&input_content, "", &prompt, &data.style, reporter).await {
-            ai_result
-        } else if input_content.contains("diff --git") || input_content.contains("+++") || input_content.contains("@@") {
-            summarize_diff(&input_content, "", &prompt, &data.style)
-        } else {
-            summarize_general_text(&input_content, &prompt, &data.style)
-        }
-    } else {
-        let mut diff_ran = run_line(
-            "git diff --cached".to_string(),
-            working_dir.clone(),
-            Vec::new(),
-            control,
-            reporter,
-            run_mode,
-            false,
-            true,
-        )
-        .await;
-
-        if data.scope == "all" || diff_ran.stdout.trim().is_empty() {
-            let all_diff_ran = run_line(
-                "git diff HEAD".to_string(),
-                working_dir.clone(),
-                Vec::new(),
-                control,
-                reporter,
-                run_mode,
-                false,
-                true,
-            )
-            .await;
-
-            if !all_diff_ran.stdout.trim().is_empty() {
-                diff_ran = all_diff_ran;
-            } else {
-                let working_diff = run_line(
-                    "git diff".to_string(),
-                    working_dir.clone(),
-                    Vec::new(),
-                    control,
-                    reporter,
-                    run_mode,
-                    false,
-                    true,
-                )
-                .await;
-                if !working_diff.stdout.trim().is_empty() {
-                    diff_ran = working_diff;
-                }
-            }
-        }
-
-        let status_ran = run_line(
-            "git status --porcelain".to_string(),
-            working_dir.clone(),
-            Vec::new(),
-            control,
-            reporter,
-            run_mode,
-            false,
-            true,
-        )
-        .await;
-
-        let diff_text = diff_ran.stdout.trim();
-        let status_text = status_ran.stdout.trim();
-
-        if diff_text.is_empty() && status_text.is_empty() {
-            reporter.err("No changes found in git repository (working tree clean).");
-            let fallback = "chore: working tree clean".to_string();
-            if data.continue_on_error {
-                return StepOutcome {
-                    status: reporter.finished_with_value(NodeStatus::Success, Some(0), fallback.clone()),
-                    value: Some((data.variable.trim().to_string(), fallback)),
-                    branch: None,
-                };
-            } else {
-                return StepOutcome::plain(reporter.finished(NodeStatus::Failed, None));
-            }
-        }
-
-        let combined_diff = if !status_text.is_empty() && !diff_text.is_empty() {
-            format!("Status:\n{}\n\nDiff:\n{}", status_text, diff_text)
-        } else if !diff_text.is_empty() {
-            diff_text.to_string()
-        } else {
-            status_text.to_string()
-        };
-
-        if let Some(ai_result) = call_apple_intelligence(&combined_diff, status_text, &prompt, &data.style, reporter).await {
-            ai_result
-        } else {
-            summarize_diff(diff_text, status_text, &prompt, &data.style)
-        }
-    };
-
-    reporter.out(final_summary.clone());
-
-    StepOutcome {
-        status: reporter.finished_with_value(NodeStatus::Success, Some(0), final_summary.clone()),
-        value: Some((data.variable.trim().to_string(), final_summary)),
-        branch: None,
-    }
-}
-
-const APPLE_INTELLIGENCE_SWIFT: &str = include_str!("../../resources/apple_intelligence.swift");
-
-async fn call_apple_intelligence(
-    diff: &str,
-    status: &str,
-    user_prompt: &str,
-    style: &str,
-    _reporter: &Reporter<'_>,
-) -> Option<String> {
-    #[cfg(target_os = "macos")]
-    {
-        let payload = serde_json::json!({
-            "diff": diff,
-            "status": status,
-            "prompt": user_prompt,
-            "style": style,
-        });
-
-        let script_path = std::env::temp_dir().join("fuse_apple_intelligence.swift");
-        if !script_path.exists() {
-            let _ = std::fs::write(&script_path, APPLE_INTELLIGENCE_SWIFT);
-        }
-
-        let mut child = tokio::process::Command::new("swift")
-            .arg(&script_path)
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .ok()?;
-
-        if let Some(mut stdin) = child.stdin.take() {
-            use tokio::io::AsyncWriteExt;
-            let _ = stdin.write_all(payload.to_string().as_bytes()).await;
-            let _ = stdin.shutdown().await;
-        }
-
-        let output = child.wait_with_output().await.ok()?;
-        if output.status.success() {
-            let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !result.is_empty() {
-                return Some(result);
-            }
-        }
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = (diff, status, user_prompt, style);
-    }
-
-    None
-}
-
-fn summarize_general_text(content: &str, prompt: &str, style: &str) -> String {
-    let lines: Vec<&str> = content.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
-    if lines.is_empty() {
-        return "No content to summarize".to_string();
-    }
-
-    let prompt_lower = prompt.to_lowercase();
-    if style == "concise" || prompt_lower.contains("concise") || prompt_lower.contains("1-sentence") {
-        if lines.len() == 1 {
-            lines[0].to_string()
-        } else {
-            format!("{}.", lines[0].trim_end_matches('.'))
-        }
-    } else if style == "detailed" || prompt_lower.contains("release notes") || prompt_lower.contains("bullet") {
-        if lines.len() <= 4 {
-            lines.join("\n")
-        } else {
-            format!("- {}\n- {}\n- {}\n...and {} more items", lines[0], lines[1], lines[2], lines.len() - 3)
-        }
-    } else {
-        if lines.len() == 1 {
-            format!("feat(core): {}", lines[0])
-        } else {
-            format!("feat(core): process {}", lines[0])
-        }
-    }
-}
-
-fn summarize_diff(diff: &str, status: &str, prompt: &str, style: &str) -> String {
-    let mut files = Vec::new();
-    let mut new_files = Vec::new();
-    let mut deleted_files = Vec::new();
-    let mut file_hunks: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
-    let mut current_file = String::new();
-
-    // 1. Collect files from git status porcelain
-    for line in status.lines() {
-        let line = line.trim();
-        if line.len() > 3 {
-            let flag = &line[0..2];
-            let filename = line[3..].trim();
-            if flag.contains('A') || flag.contains('?') {
-                new_files.push(filename.to_string());
-            }
-            if flag.contains('D') {
-                deleted_files.push(filename.to_string());
-            }
-            if !files.contains(&filename.to_string()) {
-                files.push(filename.to_string());
-            }
-        }
-    }
-
-    // 2. Collect files and hunk lines from diff
-    for line in diff.lines() {
-        if let Some(rest) = line.strip_prefix("diff --git a/") {
-            if let Some(idx) = rest.find(" b/") {
-                let filename = rest[..idx].to_string();
-                current_file = filename.clone();
-                if !files.contains(&filename) {
-                    files.push(filename);
-                }
-            }
-        } else if let Some(rest) = line.strip_prefix("+++ b/") {
-            let filename = rest.trim().to_string();
-            if filename != "/dev/null" {
-                current_file = filename.clone();
-                if !files.contains(&filename) {
-                    files.push(filename);
-                }
-            }
-        } else if !current_file.is_empty() {
-            if (line.starts_with('+') && !line.starts_with("+++"))
-                || (line.starts_with('-') && !line.starts_with("---"))
-                || line.starts_with("@@")
-            {
-                file_hunks.entry(current_file.clone()).or_default().push(line.to_string());
-            }
-        }
-    }
-
-    // 3. Determine scopes intelligently from files
-    let mut scope_counts = std::collections::BTreeMap::new();
-    for f in &files {
-        let clean = f.replace('\\', "/");
-        let parts: Vec<&str> = clean.split('/').collect();
-        let scope = if parts.len() >= 2 {
-            if parts[0] == "src" || parts[0] == "src-tauri" || parts[0] == "packages" || parts[0] == "app" {
-                parts[1]
-            } else {
-                parts[0]
-            }
-        } else {
-            let base = parts.last().unwrap_or(&"app");
-            base.split('.').next().unwrap_or(base)
-        };
-        let clean_scope = scope.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
-        let final_scope = if clean_scope.is_empty() || clean_scope == "src" {
-            "core".to_string()
-        } else {
-            clean_scope
-        };
-        *scope_counts.entry(final_scope).or_insert(0) += 1;
-    }
-
-    let top_scope = scope_counts
-        .into_iter()
-        .max_by_key(|&(_, count)| count)
-        .map(|(s, _)| s)
-        .unwrap_or_else(|| "core".to_string());
-
-    // 4. Extract rich file-level actions
-    let mut file_actions = Vec::new();
-    for f in &files {
-        let f_name = f.rsplit('/').next().unwrap_or(f);
-        let base_name = f_name.split('.').next().unwrap_or(f_name);
-
-        if new_files.contains(f) {
-            file_actions.push(format!("add {} module", base_name));
-            continue;
-        }
-        if deleted_files.contains(f) {
-            file_actions.push(format!("remove {}", base_name));
-            continue;
-        }
-
-        let lines = file_hunks.get(f);
-        if let Some(hunk_lines) = lines {
-            let mut added_symbols = Vec::new();
-            let mut detected_verbs = Vec::new();
-
-            for l in hunk_lines {
-                if l.starts_with("@@") {
-                    if let Some(idx) = l.rfind("@@") {
-                        let ctx = l[idx + 2..].trim();
-                        let cleaned = ctx
-                            .trim_start_matches("pub ")
-                            .trim_start_matches("async ")
-                            .trim_start_matches("fn ")
-                            .trim_start_matches("function ")
-                            .trim_start_matches("export ")
-                            .trim_start_matches("const ")
-                            .trim_start_matches("struct ")
-                            .trim_start_matches("type ");
-                        if let Some(p_idx) = cleaned.find('(') {
-                            let sym = cleaned[..p_idx].trim();
-                            if !sym.is_empty() && sym.len() < 25 && !added_symbols.contains(&sym.to_string()) {
-                                added_symbols.push(sym.to_string());
-                            }
-                        }
-                    }
-                } else if l.starts_with('+') {
-                    let lower = l.to_lowercase();
-                    if lower.contains("variable") || lower.contains("interpolat") {
-                        detected_verbs.push("support variables");
-                    }
-                    if lower.contains("preview") || lower.contains("markdown") {
-                        detected_verbs.push("add live preview");
-                    }
-                    if lower.contains("blur") || lower.contains("activeelement") {
-                        detected_verbs.push("handle input blur");
-                    }
-                    if lower.contains("delete") || lower.contains("remove") || lower.contains("doomed") {
-                        detected_verbs.push("support deletion");
-                    }
-                    if lower.contains("fix") || lower.contains("guard") || lower.contains("catch") {
-                        detected_verbs.push("fix error handling");
-                    }
-                    if lower.contains("prompt") || lower.contains("preset") {
-                        detected_verbs.push("support prompt presets");
-                    }
-                    if lower.contains("button") || lower.contains("gradient") || lower.contains("style") {
-                        detected_verbs.push("update styles");
-                    }
-                }
-            }
-
-            detected_verbs.dedup();
-            if !detected_verbs.is_empty() {
-                file_actions.push(format!("{} in {}", detected_verbs.join(" and "), base_name));
-            } else if !added_symbols.is_empty() {
-                file_actions.push(format!("update {} in {}", added_symbols.join(", "), base_name));
-            } else {
-                file_actions.push(format!("update {}", base_name));
-            }
-        } else {
-            file_actions.push(format!("update {}", base_name));
-        }
-    }
-
-    file_actions.dedup();
-    if file_actions.is_empty() {
-        file_actions.push("update repository changes".to_string());
-    }
-
-    let is_fix = diff.to_lowercase().contains("fix") || diff.to_lowercase().contains("bug") || diff.to_lowercase().contains("error");
-    let is_feat = !new_files.is_empty() || diff.to_lowercase().contains("add ") || diff.to_lowercase().contains("support ") || diff.to_lowercase().contains("implement ");
-    let is_docs = files.iter().all(|f| f.ends_with(".md") || f.contains("readme"));
-    let is_style = files.iter().all(|f| f.ends_with(".css") || f.ends_with(".scss"));
-
-    let commit_type = if is_docs {
-        "docs"
-    } else if is_style {
-        "style"
-    } else if is_feat {
-        "feat"
-    } else if is_fix {
-        "fix"
-    } else {
-        "refactor"
-    };
-
-    let summary_description = if file_actions.len() >= 3 {
-        format!("{}, {}, and {}", file_actions[0], file_actions[1], file_actions[2])
-    } else if file_actions.len() == 2 {
-        format!("{} and {}", file_actions[0], file_actions[1])
-    } else {
-        file_actions[0].clone()
-    };
-
-    let prompt_lower = prompt.to_lowercase();
-    if style == "concise" || prompt_lower.contains("concise") || prompt_lower.contains("1-sentence") {
-        let mut chars = summary_description.chars();
-        match chars.next() {
-            None => "Update repository changes.".to_string(),
-            Some(f) => format!("{}.", f.to_uppercase().collect::<String>() + chars.as_str()),
-        }
-    } else if style == "detailed" || prompt_lower.contains("release notes") || prompt_lower.contains("bullet") {
-        let mut notes = Vec::new();
-        notes.push(format!("### {}", commit_type.to_uppercase()));
-        for act in file_actions.iter().take(6) {
-            let mut chars = act.chars();
-            let cap = match chars.next() {
-                None => act.clone(),
-                Some(f) => f.to_uppercase().collect::<String>() + chars.as_str(),
-            };
-            notes.push(format!("- {}", cap));
-        }
-        if !files.is_empty() {
-            notes.push("".to_string());
-            notes.push(format!("*Modified {} file(s) in `{}`*", files.len(), top_scope));
-        }
-        notes.join("\n")
-    } else {
-        // Default conventional commit format
-        format!("{}({}): {}", commit_type, top_scope, summary_description)
     }
 }
 
@@ -1333,13 +1090,35 @@ pub(crate) async fn run_note(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::bump_version_string;
 
     #[test]
-    fn summarize_diff_creates_conventional_commit() {
-        let diff = "+ let new_feature = true;";
-        let status = "A src/feature.rs";
-        let summary = summarize_diff(diff, status, "", "conventional");
-        assert!(summary.contains("feature"));
+    fn test_two_part_versions() {
+        assert_eq!(bump_version_string("0.1", "minor", None, None).unwrap(), "0.2");
+        assert_eq!(bump_version_string("0.1", "patch", None, None).unwrap(), "0.2");
+        assert_eq!(bump_version_string("0.1", "major", None, None).unwrap(), "1.0");
+        assert_eq!(bump_version_string("1.9", "minor", None, None).unwrap(), "1.10");
+        assert_eq!(bump_version_string("1.9", "major", None, None).unwrap(), "2.0");
+    }
+
+    #[test]
+    fn test_three_part_semver() {
+        assert_eq!(bump_version_string("1.2.3", "patch", None, None).unwrap(), "1.2.4");
+        assert_eq!(bump_version_string("1.2.3", "minor", None, None).unwrap(), "1.3.0");
+        assert_eq!(bump_version_string("1.2.3", "major", None, None).unwrap(), "2.0.0");
+        assert_eq!(bump_version_string("v1.2.3", "patch", None, None).unwrap(), "v1.2.4");
+    }
+
+    #[test]
+    fn test_prefix_and_suffix() {
+        assert_eq!(
+            bump_version_string("0.1", "patch", Some("v"), Some("-beta.1")).unwrap(),
+            "v0.2-beta.1"
+        );
+        assert_eq!(
+            bump_version_string("1.0.0", "minor", Some("release-"), Some("+build.42")).unwrap(),
+            "release-1.1.0+build.42"
+        );
     }
 }
+

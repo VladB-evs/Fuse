@@ -304,8 +304,8 @@
    Wires
 --------------------------------------------------------------------------- */
 .react-flow__edge-path {
-  stroke: #4a4a5a;
-  stroke-width: 2.75;
+  stroke: #63637a;
+  stroke-width: 3;
   transition:
     stroke 160ms ease,
     stroke-width 160ms ease,
@@ -314,41 +314,41 @@
 
 .react-flow__edge:hover .react-flow__edge-path,
 .fuse-edge.is-selected .react-flow__edge-path {
-  stroke: color-mix(in oklab, var(--color-accent) 80%, white);
-  stroke-width: 3.25;
-  filter: drop-shadow(0 0 5px color-mix(in oklab, var(--color-accent) 50%, transparent));
+  stroke: color-mix(in oklab, var(--color-accent) 90%, white);
+  stroke-width: 3.5;
+  filter: drop-shadow(0 0 7px color-mix(in oklab, var(--color-accent) 60%, transparent));
 }
 
 /* Wire Directional Arrowhead Markers */
 .react-flow__arrowhead {
-  fill: #6c6c80;
-  stroke: #6c6c80;
+  fill: #7a7a92;
+  stroke: #7a7a92;
   transition: fill 160ms ease, stroke 160ms ease, filter 160ms ease;
 }
 
 .react-flow__edge:hover .react-flow__arrowhead,
 .fuse-edge.is-selected .react-flow__arrowhead {
-  fill: color-mix(in oklab, var(--color-accent) 90%, white);
-  stroke: color-mix(in oklab, var(--color-accent) 90%, white);
-  filter: drop-shadow(0 0 6px var(--color-accent));
+  fill: color-mix(in oklab, var(--color-accent) 95%, white);
+  stroke: color-mix(in oklab, var(--color-accent) 95%, white);
+  filter: drop-shadow(0 0 8px var(--color-accent));
 }
 
 .fuse-edge--running .react-flow__arrowhead {
   fill: #ffffff;
   stroke: #ffffff;
-  filter: drop-shadow(0 0 8px var(--color-accent));
+  filter: drop-shadow(0 0 10px var(--color-accent)) drop-shadow(0 0 20px var(--color-accent));
 }
 
 .fuse-edge--waiting .react-flow__arrowhead {
   fill: var(--color-warn);
   stroke: var(--color-warn);
-  filter: drop-shadow(0 0 6px var(--color-warn));
+  filter: drop-shadow(0 0 8px var(--color-warn));
 }
 
 .fuse-edge--done .react-flow__arrowhead {
   fill: var(--color-success);
   stroke: var(--color-success);
-  filter: drop-shadow(0 0 6px var(--color-success));
+  filter: drop-shadow(0 0 7px var(--color-success));
 }
 
 .fuse-edge--stopped .react-flow__arrowhead {
@@ -357,14 +357,14 @@
 }
 
 .fuse-edge--no .react-flow__arrowhead {
-  fill: color-mix(in oklab, var(--color-warn) 80%, white);
-  stroke: color-mix(in oklab, var(--color-warn) 80%, white);
+  fill: color-mix(in oklab, var(--color-warn) 90%, white);
+  stroke: color-mix(in oklab, var(--color-warn) 90%, white);
 }
 
 .fuse-edge--splice .react-flow__arrowhead {
   fill: var(--color-accent) !important;
   stroke: var(--color-accent) !important;
-  filter: drop-shadow(0 0 8px var(--color-accent)) !important;
+  filter: drop-shadow(0 0 10px var(--color-accent)) !important;
 }
 
 .fuse-edge--disabled .react-flow__arrowhead {
@@ -378,13 +378,14 @@
 .fuse-edge-pulse {
   fill: none;
   stroke: color-mix(in oklab, var(--color-accent) 85%, white);
-  stroke-width: 3.25;
+  stroke-width: 3.5;
   stroke-linecap: round;
-  stroke-dasharray: 0.22 0.78;
-  opacity: 0.85;
+  stroke-dasharray: 0.28 0.72;
+  stroke-dashoffset: -0.1;
+  opacity: 1;
   pointer-events: none;
-  animation: fuse-travel 2.4s linear infinite;
-  filter: drop-shadow(0 0 5px color-mix(in oklab, var(--color-accent) 55%, transparent));
+  animation: fuse-travel 1.6s linear infinite;
+  filter: drop-shadow(0 0 5px var(--color-accent)) drop-shadow(0 0 12px color-mix(in oklab, var(--color-accent) 60%, transparent));
   transition:
     stroke 160ms ease,
     stroke-width 160ms ease,
@@ -393,7 +394,7 @@
 }
 
 .fuse-edge-cap {
-  fill: #5a5a6c;
+  fill: #6a6a80;
   pointer-events: none;
   transition: fill 160ms ease, filter 160ms ease;
 }
@@ -404,44 +405,44 @@
 .fuse-edge:hover .fuse-edge-pulse,
 .fuse-edge.is-selected .fuse-edge-pulse {
   opacity: 1;
-  stroke-width: 3.75;
-  filter: drop-shadow(0 0 8px var(--color-accent));
+  stroke-width: 4.5;
+  filter: drop-shadow(0 0 10px var(--color-accent));
 }
 
 .fuse-edge:hover .fuse-edge-cap,
 .fuse-edge.is-selected .fuse-edge-cap {
   fill: var(--color-accent);
-  filter: drop-shadow(0 0 5px var(--color-accent));
-}
-
-.fuse-edge--running .react-flow__edge-path {
-  stroke: color-mix(in oklab, var(--color-accent) 60%, transparent);
-  stroke-width: 3;
-}
-.fuse-edge--running .fuse-edge-pulse {
-  stroke: #ffffff;
-  stroke-width: 4.5;
-  stroke-dasharray: 0.5 0.5;
-  opacity: 1;
-  animation: fuse-travel 0.65s linear infinite;
-  filter: drop-shadow(0 0 8px var(--color-accent)) drop-shadow(0 0 18px var(--color-accent));
-}
-.fuse-edge--running .fuse-edge-cap {
-  fill: var(--color-accent);
   filter: drop-shadow(0 0 6px var(--color-accent));
 }
 
+.fuse-edge--running .react-flow__edge-path {
+  stroke: color-mix(in oklab, var(--color-accent) 70%, transparent);
+  stroke-width: 3.5;
+}
+.fuse-edge--running .fuse-edge-pulse {
+  stroke: #ffffff;
+  stroke-width: 5;
+  stroke-dasharray: 0.4 0.6;
+  opacity: 1;
+  animation: fuse-travel 0.45s linear infinite;
+  filter: drop-shadow(0 0 10px var(--color-accent)) drop-shadow(0 0 22px var(--color-accent));
+}
+.fuse-edge--running .fuse-edge-cap {
+  fill: var(--color-accent);
+  filter: drop-shadow(0 0 8px var(--color-accent));
+}
+
 .fuse-edge--waiting .react-flow__edge-path {
-  stroke: color-mix(in oklab, var(--color-warn) 65%, transparent);
-  stroke-width: 3;
+  stroke: color-mix(in oklab, var(--color-warn) 70%, transparent);
+  stroke-width: 3.5;
 }
 .fuse-edge--waiting .fuse-edge-pulse {
   stroke: var(--color-warn);
-  stroke-width: 3.5;
+  stroke-width: 4;
   opacity: 1;
   /* Slower than a running wire: the run is alive, but nothing is moving. */
-  animation: fuse-travel 3s linear infinite;
-  filter: drop-shadow(0 0 8px color-mix(in oklab, var(--color-warn) 70%, transparent));
+  animation: fuse-travel 2s linear infinite;
+  filter: drop-shadow(0 0 9px color-mix(in oklab, var(--color-warn) 75%, transparent));
 }
 .fuse-edge--waiting .fuse-edge-cap,
 .fuse-edge--waiting .fuse-edge-cap--in {
@@ -449,15 +450,15 @@
 }
 
 .fuse-edge--done .react-flow__edge-path {
-  stroke: color-mix(in oklab, var(--color-success) 40%, #424250);
-  stroke-width: 2.75;
+  stroke: color-mix(in oklab, var(--color-success) 50%, #424250);
+  stroke-width: 3;
 }
 .fuse-edge--done .fuse-edge-pulse {
   stroke: var(--color-success);
-  stroke-width: 3.25;
-  opacity: 0.85;
-  animation: fuse-travel 3.2s linear infinite;
-  filter: drop-shadow(0 0 5px color-mix(in oklab, var(--color-success) 65%, transparent));
+  stroke-width: 3.75;
+  opacity: 1;
+  animation: fuse-travel 2s linear infinite;
+  filter: drop-shadow(0 0 7px color-mix(in oklab, var(--color-success) 75%, transparent));
 }
 .fuse-edge--done .fuse-edge-cap,
 .fuse-edge--done .fuse-edge-cap--in {
@@ -482,16 +483,31 @@
   opacity: 0;
 }
 
+/* A wire leaving a condition's "yes" port. Solid emerald stroke. */
+.fuse-edge--yes .react-flow__edge-path {
+  stroke-width: 3;
+  stroke: color-mix(in oklab, var(--color-success) 75%, #424250);
+}
+.fuse-edge--yes .fuse-edge-pulse {
+  stroke: color-mix(in oklab, var(--color-success) 90%, white);
+  stroke-width: 4;
+  opacity: 1;
+}
+.fuse-edge--yes .react-flow__arrowhead {
+  fill: color-mix(in oklab, var(--color-success) 85%, white);
+}
+
 /* A wire leaving a condition's "no" port. Dashed, so the two branches out of
    one block can be told apart without reading the labels. */
 .fuse-edge--no .react-flow__edge-path {
   stroke-dasharray: 6 4;
-  stroke-width: 2.75;
-  stroke: color-mix(in oklab, var(--color-warn) 50%, #424250);
+  stroke-width: 3;
+  stroke: color-mix(in oklab, var(--color-warn) 60%, #424250);
 }
 .fuse-edge--no .fuse-edge-pulse {
-  stroke: color-mix(in oklab, var(--color-warn) 80%, white);
-  stroke-width: 3.25;
+  stroke: color-mix(in oklab, var(--color-warn) 88%, white);
+  stroke-width: 4;
+  opacity: 1;
 }
 
 /* Edge splice preview when a node is dragged over it */
@@ -897,24 +913,7 @@ body.slicing-active .react-flow__handle {
   animation: fuse-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@keyframes fuse-cell-in {
-  from { opacity: 0; scale: 0.55; }
-  to { scale: 1; }
-}
 
-.repo-activity-cell {
-  animation: fuse-cell-in 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  transition: transform 130ms ease, filter 130ms ease;
-}
-
-.repo-activity-cell:hover {
-  filter: brightness(1.35);
-  transform: scale(1.55);
-}
-
-.repo-history-item {
-  animation: fuse-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
 
 @keyframes fuse-sheen {
   from {
@@ -1019,4 +1018,73 @@ body.slicing-active .react-flow__handle {
   background: linear-gradient(135deg, #0ea5e9 0%, #22d3ee 48%, #0284c7 100%) !important;
   background-size: 200% 200% !important;
   animation: mode-gradient-shift 1.5s ease infinite !important;
+}
+
+/* ---------------------------------------------------------------------------
+   PrismJS Syntax Highlighting Tokens (Fuse Minimalist Dark Palette)
+--------------------------------------------------------------------------- */
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #6c6c78;
+  font-style: italic;
+}
+
+.token.punctuation {
+  color: #8b8b95;
+}
+
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol {
+  color: #f5a524;
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin,
+.token.inserted {
+  color: #3ecf8e;
+}
+
+.token.operator,
+.token.entity,
+.token.url {
+  color: #7986ff;
+}
+
+.token.atrule,
+.token.attr-value,
+.token.keyword {
+  color: #a78bfa;
+}
+
+.token.function,
+.token.class-name {
+  color: #60a5fa;
+}
+
+.token.regex,
+.token.important,
+.token.variable {
+  color: #fb923c;
+}
+
+.token.important,
+.token.bold {
+  font-weight: bold;
+}
+
+.token.italic {
+  font-style: italic;
+}
+
+.token.entity {
+  cursor: help;
 }
