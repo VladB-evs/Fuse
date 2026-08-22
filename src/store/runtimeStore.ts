@@ -9,6 +9,7 @@
  */
 
 import { create } from "zustand";
+import { useWorkflowStore } from "./workflowStore";
 import type {
   EngineEvent,
   NodeRunMeta,
@@ -165,6 +166,14 @@ export const useRuntimeStore = create<RuntimeState>()((set) => ({
               durationMs: event.durationMs,
               finishedAt: event.at,
             };
+
+            if (event.outputValue && event.status === "success") {
+              const workflowStore = useWorkflowStore.getState();
+              const node = workflowStore.nodes.find((n: any) => n.id === event.nodeId);
+              if (node && node.type === "bump_version") {
+                workflowStore.updateNodeData(event.nodeId, { variableIn: event.outputValue });
+              }
+            }
 
             break;
           }
