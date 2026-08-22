@@ -55,7 +55,19 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
   const [editingLabel, setEditingLabel] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
   const [pickerOpen, setPickerOpen] = useState<string | null>(null); // placeholder name or "__insert__"
+  
+  // Robust async input state to prevent cursor jumping
+  const [localCommand, setLocalCommand] = useState(data.command);
+  const lastPushedCommand = useRef(data.command);
   const commandRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    // If the store's command changed from outside our own last push (e.g., undo/redo), sync it.
+    if (data.command !== lastPushedCommand.current) {
+      setLocalCommand(data.command);
+      lastPushedCommand.current = data.command;
+    }
+  }, [data.command]);
 
   // Close variable picker when clicking outside or pressing Escape
   useEffect(() => {
@@ -86,7 +98,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
     el.style.height = `${Math.min(el.scrollHeight, MAX_COMMAND_HEIGHT)}px`;
   }, []);
 
-  useLayoutEffect(autoGrow, [data.command, autoGrow]);
+  useLayoutEffect(autoGrow, [localCommand, autoGrow]);
 
   // A freshly added block should be ready to type into immediately.
   useEffect(() => {
@@ -96,7 +108,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
   }, [pendingFocusId, id, consumeFocus]);
 
   // Values this block will ask for at run time.
-  const inputs = useMemo(() => placeholdersIn(data.command), [data.command]);
+  const inputs = useMemo(() => placeholdersIn(localCommand), [localCommand]);
   const availableVars = useAvailableVariables();
 
   /** Replace a specific placeholder name everywhere in the command. */
@@ -104,25 +116,27 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
     (oldName: string, newName: string) => {
       const pattern = new RegExp(`\\{\\{\\s*${oldName}\\s*\\}\\}`, "g");
       beginEdit();
-      updateNodeData(id, {
-        command: data.command.replace(pattern, `{{${newName}}}`),
-      });
+      const newCommand = localCommand.replace(pattern, `{{${newName}}}`);
+      setLocalCommand(newCommand);
+      lastPushedCommand.current = newCommand;
+      updateNodeData(id, { command: newCommand });
       setPickerOpen(null);
     },
-    [id, data.command, beginEdit, updateNodeData],
+    [id, localCommand, beginEdit, updateNodeData],
   );
 
   /** Insert a variable reference at the end of the command. */
   const insertVariable = useCallback(
     (varName: string) => {
       beginEdit();
-      const separator = data.command && !data.command.endsWith(" ") ? " " : "";
-      updateNodeData(id, {
-        command: `${data.command}${separator}"{{${varName}}}"`,
-      });
+      const separator = localCommand && !localCommand.endsWith(" ") ? " " : "";
+      const newCommand = `${localCommand}${separator}"{{${varName}}}"`;
+      setLocalCommand(newCommand);
+      lastPushedCommand.current = newCommand;
+      updateNodeData(id, { command: newCommand });
       setPickerOpen(null);
     },
-    [id, data.command, beginEdit, updateNodeData],
+    [id, localCommand, beginEdit, updateNodeData],
   );
 
   const isRunning = status === "running";
@@ -143,17 +157,14 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
     <div className={cn("group relative w-[288px]", pickerOpen && "!z-50")}>
       <div
         className={cn(
-          "fuse-card relative rounded-node border bg-base",
-          "transition-[border-color,box-shadow,opacity,filter] duration-150 ease-out",
-          status === "idle" && "border-line",
-          status === "pending" && "border-line",
-          status === "skipped" && "border-line opacity-55",
+          "fuse-card fuse-card-premium relative rounded-node",
+          status === "skipped" && "opacity-55",
           isRunning && "border-accent/70",
-          status === "success" && "border-success/35",
-          status === "failed" && "border-danger/55",
-          status === "cancelled" && "border-warn/45",
+          status === "success" && "border-success/50",
+          status === "failed" && "border-danger/70",
+          status === "cancelled" && "border-warn/60",
           disabled && "opacity-50 grayscale brightness-90 border-dashed border-line/60",
-          selected && "border-accent shadow-[0_0_0_1px_var(--color-accent)]",
+          selected && "is-selected",
         )}
       >
         {/* Clipped shimmer effect when running — isolated so it doesn't bleed onto the canvas */}
@@ -162,7 +173,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
         )}
 
         {/* Header — double-click the name to rename. */}
-        <div className="flex h-[30px] items-center gap-1.5 border-b border-line/70 px-2.5 rounded-t-[calc(var(--radius-node)-1px)] bg-sky-500/[0.08]">
+        <div className="fuse-card-premium-header flex h-[30px] items-center gap-1.5 px-2.5 rounded-t-[14px] bg-sky-500/[0.08]">
           <TerminalSquare size={12} className="shrink-0 text-sky-400" strokeWidth={1.75} />
 
           {editingLabel ? (
@@ -290,7 +301,7 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
           </span>
           <textarea
             ref={commandRef}
-            value={data.command}
+            value={localCommand}
             rows={1}
             spellCheck={false}
             autoCapitalize="off"
@@ -303,7 +314,10 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
             )}
             onFocus={beginEdit}
             onChange={(e) => {
-              updateNodeData(id, { command: e.currentTarget.value });
+              const newVal = e.currentTarget.value;
+              setLocalCommand(newVal);
+              lastPushedCommand.current = newVal;
+              updateNodeData(id, { command: newVal });
               autoGrow();
             }}
             onKeyDown={(e) => {
@@ -427,6 +441,12 @@ function CommandNodeImpl({ id, data, selected }: NodeProps<CommandNodeType>) {
                     )}
                   </div>
                 )}
+              </div>
+            )}
+            
+            {inputs.length > 0 && (
+              <div className="w-full text-[9px] text-fg-subtle/70 italic mt-0.5 leading-snug">
+                Variables are safely escaped. Quotes are added automatically if omitted.
               </div>
             )}
           </div>

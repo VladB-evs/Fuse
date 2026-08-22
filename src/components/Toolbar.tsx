@@ -1,12 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
-  Braces,
   ChevronDown,
   FileSearch,
   FlaskConical,
-  FolderInput,
-  FolderOpen,
   PanelLeft,
   PanelLeftClose,
   Play,
@@ -22,8 +19,6 @@ import { Button } from "@/components/ui/Button";
 import { StatusDot } from "@/components/ui/StatusDot";
 import { Kbd } from "@/components/ui/Kbd";
 import {
-  importBlocks,
-  importWorkflow,
   openNodePicker,
   runCurrentWorkflow,
   stopCurrentRun,
@@ -49,7 +44,6 @@ function useElapsed(startedAt: number | null, active: boolean): number {
 }
 
 export function Toolbar() {
-  const dirty = useWorkflowStore((s) => s.dirty);
   const nodeCount = useWorkflowStore((s) => s.nodes.length);
 
   // Always show the Run button in the top toolbar so the user can easily run
@@ -70,10 +64,8 @@ export function Toolbar() {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const toast = useUIStore((s) => s.toast);
-  const setPaletteOpen = useUIStore((s) => s.setPaletteOpen);
-  const setDocsOpen = useUIStore((s) => s.setDocsOpen);
-  const setImportJsonOpen = useUIStore((s) => s.setImportJsonOpen);
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
+  const setDocsOpen = useUIStore((s) => s.setDocsOpen);
   const leftSidebarOpen = useUIStore((s) => s.leftSidebarOpen);
   const toggleLeftSidebar = useUIStore((s) => s.toggleLeftSidebar);
   const setOutputOpen = useUIStore((s) => s.setOutputOpen);
@@ -111,13 +103,7 @@ export function Toolbar() {
         {leftSidebarOpen ? <PanelLeftClose size={15} /> : <PanelLeft size={15} />}
       </button>
 
-      {/* Identity */}
-      <span data-tauri-drag-region className="text-[12px] font-semibold tracking-tight text-fg">
-        Fuse
-      </span>
-      {dirty && (
-        <span title="Unsaved changes" className="size-[5px] shrink-0 rounded-full bg-fg-subtle" />
-      )}
+      <div className="flex w-2" data-tauri-drag-region />
 
       {/* Live run readout */}
       <div
@@ -326,50 +312,14 @@ export function Toolbar() {
         )
       )}
 
-      <button
-        type="button"
-        onClick={() => setPaletteOpen(true)}
-        title="Command palette"
-        className="ml-0.5 flex items-center gap-0.5 rounded-[6px] px-1 py-1 transition hover:bg-hover"
-      >
-        <Kbd>⌘</Kbd>
-        <Kbd>K</Kbd>
-      </button>
-
+      {/* Run Menu and Add Block (from the previous code) ends here, we just need to keep Settings */}
       <button
         type="button"
         onClick={() => setDocsOpen(true)}
-        title="Documentation"
-        className="flex items-center justify-center rounded-[6px] p-1.5 text-fg-subtle transition hover:bg-hover hover:text-fg"
+        title="Documentation & Shortcuts"
+        className="ml-auto flex items-center justify-center rounded-[6px] p-1.5 text-fg-subtle transition hover:bg-hover hover:text-fg"
       >
         <BookOpen size={15} />
-      </button>
-
-      <button
-        type="button"
-        onClick={() => setImportJsonOpen(true)}
-        title="Import from JSON / Clipboard"
-        className="flex items-center justify-center rounded-[6px] p-1.5 text-fg-subtle transition hover:bg-hover hover:text-fg"
-      >
-        <Braces size={15} />
-      </button>
-
-      <button
-        type="button"
-        onClick={() => void importWorkflow()}
-        title="Open Workflow from File"
-        className="flex items-center justify-center rounded-[6px] p-1.5 text-fg-subtle transition hover:bg-hover hover:text-fg"
-      >
-        <FolderOpen size={15} />
-      </button>
-
-      <button
-        type="button"
-        onClick={() => void importBlocks()}
-        title="Import Blocks into Current Flow"
-        className="flex items-center justify-center rounded-[6px] p-1.5 text-fg-subtle transition hover:bg-hover hover:text-fg"
-      >
-        <FolderInput size={15} />
       </button>
 
       <button

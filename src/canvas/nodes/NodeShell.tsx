@@ -99,23 +99,20 @@ export function NodeShell({
     >
       <div
         className={cn(
-          "fuse-card relative flex flex-col w-full h-full rounded-node border bg-base",
-          "transition-[border-color,box-shadow,opacity,filter] duration-150 ease-out",
-          "border-line",
+          "fuse-card fuse-card-premium relative flex flex-col w-full h-full",
           status === "skipped" && "opacity-55",
           status === "running" && "running-sheen border-accent/70",
-          status === "success" && "border-success/35",
-          status === "failed" && "border-danger/55",
-          status === "cancelled" && "border-warn/45",
+          status === "success" && "border-success/50",
+          status === "failed" && "border-danger/70",
+          status === "cancelled" && "border-warn/60",
           disabled && "opacity-50 grayscale brightness-90 border-dashed border-line/60",
-          // The one card holding everything up should be impossible to miss.
           waiting && "waiting-glow border-warn",
-          selected && "border-accent shadow-[0_0_0_1px_var(--color-accent)]",
+          selected && "is-selected",
         )}
       >
         <div
           className={cn(
-            "flex h-[30px] shrink-0 items-center gap-1.5 border-b border-line/70 px-2.5",
+            "fuse-card-premium-header flex h-[30px] shrink-0 items-center gap-1.5 px-2.5 rounded-t-[14px]",
             CATEGORY_THEME[entry.group]?.headerBg || ACCENT_TINT[entry.accent],
           )}
         >

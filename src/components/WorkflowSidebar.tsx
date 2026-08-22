@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Braces, FilePlus2, Folder, Pencil, RefreshCw, Sparkles, Trash2, Workflow, X } from "lucide-react";
+import { Braces, FilePlus2, Pencil, RefreshCw, Sparkles, Trash2, Workflow } from "lucide-react";
+import AppIcon from "@/assets/icon.png";
 import { listWorkflows } from "@/bridge/commands";
 import {
-  chooseWorkingDirectory,
-  clearWorkingDirectory,
   createNewWorkflow,
   openWorkflowById,
   renameSavedWorkflow,
@@ -11,7 +10,7 @@ import {
 } from "@/lib/actions";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
-import { cn, prettyPath } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useWorkflowStore } from "@/store/workflowStore";
 import { useUIStore } from "@/store/uiStore";
 import type { WorkflowSummary } from "@/types/workflow";
@@ -29,7 +28,6 @@ function relativeDate(updatedAt: number): string {
 export function WorkflowSidebar() {
   const activeId = useWorkflowStore((s) => s.id);
   const activeName = useWorkflowStore((s) => s.name);
-  const workingDir = useWorkflowStore((s) => s.workingDir);
   const dirty = useWorkflowStore((s) => s.dirty);
   const availableUpdate = useUIStore((s) => s.availableUpdate);
   const setSettingsOpen = useUIStore((s) => s.setSettingsOpen);
@@ -44,13 +42,44 @@ export function WorkflowSidebar() {
   }, []);
   const cancelRenameRef = useRef(false);
 
-  const refresh = useCallback(() => {
-    void listWorkflows().then(setWorkflows).catch(() => setWorkflows([]));
+  const [refreshing, setRefreshing] = useState(false);
+
+  const refresh = useCallback(async (silent = true) => {
+    setRefreshing(true);
+    try {
+      const list = await listWorkflows();
+      if (!silent) {
+        // Compare with what was already known to report discoveries.
+        setWorkflows((prev) => {
+          const prevIds = new Set(prev.map((w) => w.id));
+          const newOnes = list.filter((w) => !prevIds.has(w.id));
+          if (newOnes.length > 0) {
+            useUIStore.getState().notify(
+              newOnes.length === 1
+                ? `Found "${newOnes[0]?.name}"`
+                : `Found ${newOnes.length} new workflows`,
+            );
+          } else {
+            useUIStore.getState().notify("Already up to date");
+          }
+          return list;
+        });
+      } else {
+        setWorkflows(list);
+      }
+    } catch {
+      setWorkflows([]);
+    } finally {
+      setRefreshing(false);
+    }
   }, []);
 
+  // Silent refresh whenever the active workflow changes or is saved.
   useEffect(() => {
-    refresh();
+    void refresh(true);
   }, [refresh, activeId, activeName, dirty]);
+
+  const handleRefreshClick = () => void refresh(false);
 
   const beginRename = (workflow: WorkflowSummary) => {
     cancelRenameRef.current = false;
@@ -60,7 +89,7 @@ export function WorkflowSidebar() {
 
   const createWorkflowFromSidebar = async () => {
     const created = await createNewWorkflow();
-    refresh();
+    await refresh(true);
     if (!created) return;
     cancelRenameRef.current = false;
     setEditingId(created.id);
@@ -97,16 +126,26 @@ export function WorkflowSidebar() {
 
   return (
     <aside className="flex w-[218px] shrink-0 flex-col border-r border-line bg-base">
-      <header className="flex h-10 items-center justify-between border-b border-line px-3">
-        <span className="text-[11px] font-medium tracking-wide text-fg-muted uppercase">Workflows</span>
+      <header
+        data-tauri-drag-region
+        className="flex h-11 items-center justify-between border-b border-line px-3"
+      >
+        <div data-tauri-drag-region className="flex items-center gap-2">
+          {/* App Icon */}
+          <img src={AppIcon} alt="Fuse Logo" className="size-[20px] rounded-[5px] pointer-events-none" />
+          <span data-tauri-drag-region className="text-[12px] font-bold tracking-tight text-fg">
+            Fuse
+          </span>
+        </div>
         <div className="flex items-center gap-0.5">
           <button
             type="button"
-            onClick={refresh}
-            title="Refresh saved workflows"
-            className="flex size-6 items-center justify-center rounded-[5px] text-fg-subtle transition hover:bg-hover hover:text-fg"
+            onClick={handleRefreshClick}
+            disabled={refreshing}
+            title="Scan for new workflows"
+            className="flex size-6 items-center justify-center rounded-[5px] text-fg-subtle transition hover:bg-hover hover:text-fg disabled:opacity-50"
           >
-            <RefreshCw size={11} strokeWidth={2} />
+            <RefreshCw size={11} strokeWidth={2} className={refreshing ? "animate-spin" : ""} />
           </button>
           <button
             type="button"
@@ -126,6 +165,10 @@ export function WorkflowSidebar() {
           </button>
         </div>
       </header>
+
+      <div className="flex h-8 items-center px-3 border-b border-line/50">
+        <span className="text-[10.5px] font-medium tracking-wide text-fg-muted uppercase">Workflows</span>
+      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {workflows.length === 0 ? (
@@ -213,36 +256,7 @@ export function WorkflowSidebar() {
         )}
       </div>
 
-      <footer className="border-t border-line px-2 py-2">
-        <div className="mb-2 flex items-center justify-between px-1 text-[10px] text-fg-subtle">
-          <span>{workflows.length} saved workflow{workflows.length === 1 ? "" : "s"}</span>
-          {workingDir && (
-            <button
-              type="button"
-              onClick={clearWorkingDirectory}
-              title="Clear workflow folder"
-              className="flex size-5 items-center justify-center rounded-[4px] text-fg-subtle transition hover:bg-hover hover:text-fg"
-            >
-              <X size={10} strokeWidth={2} />
-            </button>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => void chooseWorkingDirectory()}
-          title={workingDir ? `Workflow folder: ${workingDir}` : "Attach a workflow folder"}
-          className="flex w-full items-center gap-2 rounded-[7px] border border-line bg-canvas px-2 py-1.5 text-left transition hover:border-accent/40 hover:bg-hover"
-        >
-          <Folder size={12} className={workingDir ? "text-accent" : "text-fg-subtle"} />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-[10.5px] font-medium text-fg-muted">
-              {workingDir ? prettyPath(workingDir) : "/"}
-            </span>
-            <span className="block truncate text-[9.5px] text-fg-subtle">
-              {workingDir ? "Frames inherit this folder" : "No folder attached"}
-            </span>
-          </span>
-        </button>
+      <footer className="px-2 py-2">
         {availableUpdate && (
           <button
             type="button"

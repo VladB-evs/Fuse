@@ -46,6 +46,14 @@ export function deleteWorkflow(id: string): Promise<void> {
   return invoke("delete_workflow", { id });
 }
 
+export function renameWorkflow(
+  id: string,
+  newId: string,
+  name: string,
+): Promise<WorkflowDocument> {
+  return invoke("rename_workflow", { id, newId, name });
+}
+
 /** Starts a run and resolves with its id; progress arrives as engine events. */
 export function runWorkflow(
   workflow: WorkflowDocument,

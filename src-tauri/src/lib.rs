@@ -51,6 +51,7 @@ pub fn run() {
             commands::pick_directory,
             commands::apply_sandbox_changes,
             commands::discard_sandbox,
+            commands::rename_workflow,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Fuse");

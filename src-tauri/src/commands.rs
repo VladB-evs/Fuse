@@ -268,6 +268,41 @@ pub async fn delete_workflow(state: State<'_, AppState>, id: String) -> Result<(
     store.delete(&id).map_err(|e| e.to_string())
 }
 
+/// Rename a workflow and update its filename to match.
+///
+/// The file on disk is always named after the workflow so the directory stays
+/// human-readable.  We save a copy under `new_id`, then remove the old file
+/// so the transition is effectively atomic from the user's perspective.
+#[tauri::command]
+pub async fn rename_workflow(
+    state: State<'_, AppState>,
+    id: String,
+    new_id: String,
+    name: String,
+) -> Result<crate::model::Workflow, String> {
+    let store = state.store.read().unwrap().clone();
+
+    // Check if new_id already exists to prevent silent overwrite during rename
+    if id != new_id && store.load(&new_id).is_ok() {
+        return Err(format!("A workflow with id '{}' already exists", new_id));
+    }
+
+    // Load the existing document.
+    let mut workflow = store.load(&id).map_err(|e| e.to_string())?;
+    workflow.id = new_id.clone();
+    workflow.name = name;
+
+    // Save under the new id first — if this fails nothing is lost.
+    let saved = store.save(&workflow).map_err(|e| e.to_string())?;
+
+    // Remove the old file only once the new one is safely on disk.
+    if id != new_id {
+        store.delete(&id).map_err(|e| e.to_string())?;
+    }
+
+    Ok(saved)
+}
+
 // --- Execution ------------------------------------------------------------
 
 #[tauri::command]

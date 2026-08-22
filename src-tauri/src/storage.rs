@@ -122,7 +122,8 @@ impl WorkflowStore for JsonStore {
         let json = serde_json::to_string_pretty(&record)?;
 
         // Write-then-rename so a crash mid-save can't truncate a good file.
-        let tmp = path.with_extension("json.tmp");
+        // Use a UUID in the temp file name to prevent concurrent save race conditions.
+        let tmp = path.with_extension(format!("{}.json.tmp", uuid::Uuid::new_v4()));
         fs::write(&tmp, json)?;
         fs::rename(&tmp, &path)?;
 
@@ -131,10 +132,11 @@ impl WorkflowStore for JsonStore {
 
     fn delete(&self, id: &str) -> Result<(), StorageError> {
         let path = self.path_for(id)?;
-        if path.exists() {
-            fs::remove_file(path)?;
+        match fs::remove_file(path) {
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e.into()),
         }
-        Ok(())
     }
 }
 

@@ -27,6 +27,7 @@ import { save, open } from "@tauri-apps/plugin-dialog";
 import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
 import { v4 as uuidv4 } from "uuid";
 import { parseFuseJson, prepareImportedNodesAndEdges } from "@/lib/jsonImporter";
+import { slugifyName } from "@/lib/id";
 
 
 const LAST_OPENED_KEY = "fuse.lastWorkflowId";
@@ -95,20 +96,52 @@ export async function openWorkflowById(id: string): Promise<void> {
   }
 }
 
-/** Rename a saved workflow without making the user open it first. */
+/**
+ * Return a slug derived from `name` that doesn't collide with any existing
+ * workflow id, except for `excludeId` (the workflow being renamed/created).
+ */
+async function uniqueSlug(name: string, excludeId?: string): Promise<string> {
+  const base = slugifyName(name);
+  let existing: string[];
+  try {
+    const list = await api.listWorkflows();
+    existing = list.map((w) => w.id).filter((id) => id !== excludeId);
+  } catch {
+    return base;
+  }
+  if (!existing.includes(base)) return base;
+  for (let i = 2; i < 1000; i++) {
+    const candidate = `${base}-${i}`;
+    if (!existing.includes(candidate)) return candidate;
+  }
+  // Absolute last resort — timestamp suffix.
+  return `${base}-${Date.now().toString(36)}`;
+}
+
+/** Rename a saved workflow and rename its file on disk to match. */
 export async function renameSavedWorkflow(id: string, name: string): Promise<void> {
   const nextName = name.trim() || "Untitled";
+  // Compute a slug that won't collide with another workflow (excluding self).
+  const nextId = await uniqueSlug(nextName, id);
   try {
-    // Preserve unsaved canvas changes when renaming the workflow already open.
+    // If this is the open workflow, update the in-memory store and save.
     if (useWorkflowStore.getState().id === id) {
-      useWorkflowStore.getState().setName(nextName);
-      await saveCurrentWorkflow();
+      // If the slug changed we need to save under the new id and delete the old file.
+      if (nextId !== id) {
+        const saved = await api.renameWorkflow(id, nextId, nextName);
+        useWorkflowStore.getState().setName(nextName);
+        useWorkflowStore.getState().markSaved(saved);
+        rememberLastOpened(saved.id);
+      } else {
+        useWorkflowStore.getState().setName(nextName);
+        await saveCurrentWorkflow();
+      }
       return;
     }
 
-    const workflow = await api.loadWorkflow(id);
-    await api.saveWorkflow({ ...workflow, name: nextName });
-    useUIStore.getState().notify(`Renamed to “${nextName}”`);
+    // Background workflow — rename the file without opening it.
+    await api.renameWorkflow(id, nextId, nextName);
+    useUIStore.getState().notify(`Renamed to "${nextName}"`);
   } catch (error) {
     useUIStore.getState().notify(message(error), "error");
     throw error;
@@ -119,8 +152,12 @@ export async function createNewWorkflow(saveImmediately: boolean = true): Promis
   await autosaveWorkflow();
   try {
     useWorkflowStore.getState().resetWorkflow();
-    
+
     if (saveImmediately) {
+      const doc = useWorkflowStore.getState().toDocument();
+      // Use a name-based slug so the file on disk is human-readable.
+      const slug = await uniqueSlug(doc.name);
+      useWorkflowStore.getState().loadDocument({ ...doc, id: slug, nodes: [], edges: [] });
       const saved = await api.saveWorkflow(useWorkflowStore.getState().toDocument());
       useWorkflowStore.getState().markSaved(saved);
       useRuntimeStore.getState().clearAll();

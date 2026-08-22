@@ -16,7 +16,8 @@ import {
   MarkerType,
   type Edge as RFEdge,
 } from "@xyflow/react";
-import { Maximize2, Minus, Plus, Map } from "lucide-react";
+import {  Maximize2, Minus, Plus, Map, Folder, X 
+} from "lucide-react";
 import { nodeTypes } from "./nodes";
 import { FRAME_THEMES } from "./nodes/FrameNode";
 import { FlowEdge } from "./edges/FlowEdge";
@@ -28,7 +29,13 @@ import { SOURCE_PORT, TARGET_PORT } from "./ports";
 import { GRID, useWorkflowStore } from "@/store/workflowStore";
 import { useRuntimeStore } from "@/store/runtimeStore";
 import { useUIStore } from "@/store/uiStore";
-import { setCanvasProjection, recordMouseScreen, addCommandBlock } from "@/lib/actions";
+import { 
+  setCanvasProjection, 
+  recordMouseScreen, 
+  addCommandBlock,
+  chooseWorkingDirectory,
+  clearWorkingDirectory 
+} from "@/lib/actions";
 import { findIntersectingEdge } from "@/lib/edgeSplice";
 import { Kbd } from "@/components/ui/Kbd";
 import { cn } from "@/lib/utils";
@@ -47,6 +54,7 @@ const MINIMAP_COLORS: Record<string, string> = {
 export function Canvas() {
   const nodes = useWorkflowStore((s) => s.nodes);
   const edges = useWorkflowStore((s) => s.edges);
+  const workingDir = useWorkflowStore((s) => s.workingDir);
   const onNodesChangeStore = useWorkflowStore((s) => s.onNodesChange);
   const onEdgesChange = useWorkflowStore((s) => s.onEdgesChange);
   const onConnect = useWorkflowStore((s) => s.onConnect);
@@ -420,7 +428,7 @@ export function Canvas() {
           bgColor="#08080a"
         />
 
-        <Panel position="bottom-left" className="!m-3">
+        <Panel position="bottom-left" className="!m-3 flex items-center gap-2 pointer-events-auto">
           <div className="flex items-center gap-0.5 rounded-lg border border-line bg-base/90 p-0.5 shadow-lg backdrop-blur-md">
             <CanvasButton label="Zoom out (-)" onClick={() => zoomOut({ duration: 160 })}>
               <Minus size={13} strokeWidth={2} />
@@ -443,6 +451,31 @@ export function Canvas() {
               <Map size={12} strokeWidth={2} />
             </CanvasButton>
           </div>
+          
+          <button
+            type="button"
+            onClick={() => void chooseWorkingDirectory()}
+            title={workingDir ? `Workspace: ${workingDir}` : "Attach a workspace folder"}
+            className="flex items-center gap-2 rounded-lg border border-line bg-base/90 px-2.5 py-1.5 shadow-lg backdrop-blur-md text-[11px] font-medium transition hover:border-accent/40 hover:bg-hover"
+          >
+            <Folder size={12} className={workingDir ? "text-accent" : "text-fg-subtle"} />
+            <span className="truncate max-w-[150px] text-fg-muted">
+              {workingDir ? workingDir.split(/[/\\]/).filter(Boolean).pop() : "Attach Folder..."}
+            </span>
+            {workingDir && (
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  clearWorkingDirectory();
+                }}
+                className="ml-1 rounded-[4px] p-0.5 hover:bg-white/10 hover:text-fg text-fg-subtle transition"
+              >
+                <X size={10} strokeWidth={2.5} />
+              </div>
+            )}
+          </button>
         </Panel>
 
         {minimapOpen && (
