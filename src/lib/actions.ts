@@ -663,23 +663,49 @@ export async function runFrame(frameId: string, mode?: import("@/types/workflow"
 
   const doc = workflow.toDocument();
 
-  // ONLY include the frame itself and member blocks strictly inside this frame
-  const frameNode = doc.nodes.find((n) => n.id === frameId);
-  const memberNodes = doc.nodes.filter(
-    (n) => n.data && "frameId" in n.data && n.data.frameId === frameId,
-  );
+  // 1. Start with the source frame and all member blocks inside it
+  const reachableNodeIds = new Set<string>([frameId]);
+  for (const node of doc.nodes) {
+    if (node.data && "frameId" in node.data && node.data.frameId === frameId) {
+      reachableNodeIds.add(node.id);
+    }
+  }
 
-  if (memberNodes.length === 0) {
+  // 2. Traverse all reachable downstream elements (intermediate confirm/choice nodes,
+  // downstream frames, and their member blocks) across active edges
+  let added = true;
+  while (added) {
+    added = false;
+    for (const edge of doc.edges) {
+      if (!edge.disabled && reachableNodeIds.has(edge.source) && !reachableNodeIds.has(edge.target)) {
+        reachableNodeIds.add(edge.target);
+        added = true;
+        
+        // If the target is a frame, also pull in all its member blocks
+        const targetNode = doc.nodes.find((n) => n.id === edge.target);
+        if (targetNode?.type === "frame") {
+          for (const node of doc.nodes) {
+            if (node.data && "frameId" in node.data && node.data.frameId === targetNode.id && !reachableNodeIds.has(node.id)) {
+              reachableNodeIds.add(node.id);
+              added = true;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const includedNodes = doc.nodes.filter((n) => reachableNodeIds.has(n.id));
+  const stepNodes = includedNodes.filter((n) => n.type !== "frame" && n.type !== "note");
+
+  if (stepNodes.length === 0) {
     ui.notify("No blocks inside this frame to run", "error");
     return;
   }
 
-  const includedNodes = frameNode ? [frameNode, ...memberNodes] : memberNodes;
-  const includedNodeIds = new Set(includedNodes.map((n) => n.id));
-
-  // Only include active edges connecting blocks strictly within this frame
+  // Only include active edges where both ends are in our reachable set
   const includedEdges = doc.edges.filter(
-    (e) => !e.disabled && includedNodeIds.has(e.source) && includedNodeIds.has(e.target),
+    (e) => !e.disabled && reachableNodeIds.has(e.source) && reachableNodeIds.has(e.target),
   );
 
   const scoped = await withRunInputs(
@@ -688,7 +714,7 @@ export async function runFrame(frameId: string, mode?: import("@/types/workflow"
       nodes: includedNodes,
       edges: includedEdges,
     },
-    memberNodes.map((n) => n.id),
+    stepNodes.map((n) => n.id),
   );
   if (!scoped) return;
 
